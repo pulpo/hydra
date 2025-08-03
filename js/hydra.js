@@ -2495,6 +2495,9 @@ window.hydra = (function(){
                         launchCanvasSelectorBtns.forEach(btn => btn.classList.remove('on'));
                         launchCanvasSelectorBtn.classList.add('on');
                         hydra.streamer.canvasToStream = e.target.dataset.canvasToStream;
+                        
+                        // Notify streaming system that canvas selection has changed
+                        hydra.streamer.onCanvasSelectionChange();
                     });
                 });
 
@@ -2999,20 +3002,34 @@ window.hydra = (function(){
                 hydra.audio.bpm.beatDetection();
             },
             mixOutput: function() {
-                if (hydra.deck1.raised) {
-                    hydra.mixedCtx.globalAlpha = hydra.deck1.crossfaderAlpha;
-                    hydra.mixedCtx.drawImage(hydra.deck1.preOutputCanvas, 0, 0);
+                // Check which canvas should be displayed based on D1 MIX D2 button selection
+                const canvasToDisplay = hydra.streamer.canvasToStream;
+                
+                if (canvasToDisplay === '1') {
+                    // Show only Deck 1
                     hydra.mixedCtx.globalAlpha = 1;
-                }
-
-                hydra.mixedCtx.globalAlpha = hydra.deck2.crossfaderAlpha;
-                hydra.mixedCtx.drawImage(hydra.deck2.preOutputCanvas, 0, 0);
-                hydra.mixedCtx.globalAlpha = 1;
-
-                if (!hydra.deck1.raised) {
-                    hydra.mixedCtx.globalAlpha = hydra.deck1.crossfaderAlpha;
                     hydra.mixedCtx.drawImage(hydra.deck1.preOutputCanvas, 0, 0);
+                } else if (canvasToDisplay === '2') {
+                    // Show only Deck 2
                     hydra.mixedCtx.globalAlpha = 1;
+                    hydra.mixedCtx.drawImage(hydra.deck2.preOutputCanvas, 0, 0);
+                } else {
+                    // Show mixed output (default behavior)
+                    if (hydra.deck1.raised) {
+                        hydra.mixedCtx.globalAlpha = hydra.deck1.crossfaderAlpha;
+                        hydra.mixedCtx.drawImage(hydra.deck1.preOutputCanvas, 0, 0);
+                        hydra.mixedCtx.globalAlpha = 1;
+                    }
+
+                    hydra.mixedCtx.globalAlpha = hydra.deck2.crossfaderAlpha;
+                    hydra.mixedCtx.drawImage(hydra.deck2.preOutputCanvas, 0, 0);
+                    hydra.mixedCtx.globalAlpha = 1;
+
+                    if (!hydra.deck1.raised) {
+                        hydra.mixedCtx.globalAlpha = hydra.deck1.crossfaderAlpha;
+                        hydra.mixedCtx.drawImage(hydra.deck1.preOutputCanvas, 0, 0);
+                        hydra.mixedCtx.globalAlpha = 1;
+                    }
                 }
             }
         },
@@ -3274,6 +3291,8 @@ window.hydra = (function(){
             streamingInterval: null,
             streamCanvas: null,
             streamCtx: null,
+            localWindow: null,
+            localVideoElement: null,
             // Performance settings - Default to 720p
             maxWidth: 1280,
             maxHeight: 720,
@@ -3462,6 +3481,9 @@ window.hydra = (function(){
                         return;
                     }
                     
+                    // Store references for dynamic canvas switching
+                    this.localWindow = popUpWindow;
+                    
                     popUpWindow.document.body.style = 'background: black; margin: 0;';
                     const videoEl = document.createElement('video');
                     videoEl.autoplay = true;
@@ -3469,10 +3491,33 @@ window.hydra = (function(){
                     videoEl.style = 'aspect-ratio: 16 / 9; width: 100%; height: 100%;';
                     const remoteVideo = popUpWindow.document.body.appendChild(videoEl);
                     remoteVideo.srcObject = stream;
+                    
+                    // Store reference to video element for dynamic updates
+                    this.localVideoElement = remoteVideo;
+                    
+                    // Handle window close
+                    popUpWindow.addEventListener('beforeunload', () => {
+                        this.localWindow = null;
+                        this.localVideoElement = null;
+                    });
                 } catch (error) {
                     console.error('Error launching local window:', error);
                     alert('Failed to launch local window. Please try refreshing the page.');
                 }
+            },
+            onCanvasSelectionChange: function() {
+                // Update local window stream if it's open
+                if (this.localWindow && this.localVideoElement && !this.localWindow.closed) {
+                    try {
+                        const newCanvas = this.canvasToStream == 'mix' ? hydra.mixedCanvas : hydra[`deck${this.canvasToStream}`].preOutputCanvas;
+                        const newStream = newCanvas.captureStream();
+                        this.localVideoElement.srcObject = newStream;
+                    } catch (error) {
+                        console.error('Error updating local window stream:', error);
+                    }
+                }
+                
+                // Network streaming automatically updates because we made it dynamic in startFrameCapture
             },
             startNetworkStreaming: function() {
                 if (this.isNetworkStreaming) {
@@ -3521,12 +3566,13 @@ window.hydra = (function(){
             },
             startFrameCapture: function() {
                 try {
-                    const canvas = this.canvasToStream == 'mix' ? hydra.mixedCanvas : hydra[`deck${this.canvasToStream}`].preOutputCanvas;
+                    // Get initial canvas for sizing, but we'll determine the actual canvas dynamically
+                    const initialCanvas = this.canvasToStream == 'mix' ? hydra.mixedCanvas : hydra[`deck${this.canvasToStream}`].preOutputCanvas;
                     
                     // Create a smaller canvas for streaming to reduce bandwidth
                     this.streamCanvas = document.createElement('canvas');
-                    this.streamCanvas.width = Math.min(canvas.width, this.maxWidth);
-                    this.streamCanvas.height = Math.min(canvas.height, this.maxHeight);
+                    this.streamCanvas.width = Math.min(initialCanvas.width, this.maxWidth);
+                    this.streamCanvas.height = Math.min(initialCanvas.height, this.maxHeight);
                     this.streamCtx = this.streamCanvas.getContext('2d');
                     
                     // Performance monitoring for adaptive quality
@@ -3540,8 +3586,11 @@ window.hydra = (function(){
                             frameStartTime = Date.now();
                             
                             try {
+                                // Dynamically determine which canvas to stream based on current selection
+                                const currentCanvas = this.canvasToStream == 'mix' ? hydra.mixedCanvas : hydra[`deck${this.canvasToStream}`].preOutputCanvas;
+                                
                                 // Scale down the canvas content
-                                this.streamCtx.drawImage(canvas, 0, 0, this.streamCanvas.width, this.streamCanvas.height);
+                                this.streamCtx.drawImage(currentCanvas, 0, 0, this.streamCanvas.width, this.streamCanvas.height);
                                 
                                 // Convert to JPEG blob for compression
                                 this.streamCanvas.toBlob((blob) => {
