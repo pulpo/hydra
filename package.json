@@ -1,0 +1,22 @@
+{
+  "name": "hydra-network-streaming",
+  "version": "1.0.0",
+  "description": "Network streaming server for Hydra VJ mixer",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.14.2"
+  },
+  "keywords": [
+    "hydra",
+    "vj",
+    "streaming",
+    "websocket",
+    "visual"
+  ],
+  "author": "",
+  "license": "MIT"
+}

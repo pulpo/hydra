@@ -191,9 +191,48 @@ Available online at https://hydra.virusav.com/
 - Keyboard shortcuts (WIP)
 - Theming
 - Cast screens (deck 1, deck2 or mixed) to popup windows
+- **Network streaming to multiple viewers on the same network**
 - Video output resolution configuration
 - Extensible
 - Free/Libre Open Source Software
+
+## Network Streaming Setup
+
+To stream Hydra to multiple viewers on your network:
+
+### 1. Install Dependencies
+```bash
+npm install
+```
+
+### 2. Start the Server
+```bash
+node server.js
+```
+Or use the startup script:
+```bash
+./start-server.sh
+```
+
+### 3. Access Hydra
+- **Main interface**: `http://localhost:8080/`
+- **From other devices**: `http://YOUR_IP:8080/` (replace YOUR_IP with your computer's local IP)
+
+### 4. Connect Viewers
+- **Viewer page**: `http://YOUR_IP:8080/viewer.html`
+- Other devices on your network can open this URL to watch the stream
+
+### 5. Start Streaming
+1. Open Hydra in your browser
+2. Set up your visual mix
+3. Click the **Launch** button
+4. Choose **Network Streaming** when prompted
+5. Share the viewer URL with others on your network
+
+### Network Requirements
+- All devices must be on the same local network (WiFi/Ethernet)
+- Firewall may need to allow connections on ports 8080 and 8081
+- For best performance, use a wired connection for the main Hydra computer
 
 ## User Guide
 Coming soon.  There's still some work to do to add a built-in help system, and to add a few roadmap features which will need documenting.

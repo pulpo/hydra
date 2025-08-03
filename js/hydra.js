@@ -3269,17 +3269,224 @@ window.hydra = (function(){
         },
         streamer: {
             canvasToStream: 'mix',
+            ws: null,
+            isNetworkStreaming: false,
+            streamingInterval: null,
+            streamCanvas: null,
+            streamCtx: null,
+            // Performance settings
+            maxWidth: 640,
+            maxHeight: 360,
+            jpegQuality: 0.8,
+            targetFPS: 25,
             launch: function() {
-                const canvas = this.canvasToStream == 'mix' ? hydra.mixedCanvas : hydra[`deck${this.canvasToStream}`].preOutputCanvas;
-                const stream = canvas.captureStream()
-                const popUpWindow = window.open('', '_blank', 'toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no');
-                popUpWindow.document.body.style = 'background: black; margin: 0;';
-                const videoEl = document.createElement('video');
-                videoEl.autoplay = true;
-                videoEl.muted = true;
-                videoEl.style = 'aspect-ratio: 16 / 9; width: 100%; height: 100%;';
-                const remoteVideo = popUpWindow.document.body.appendChild(videoEl);
-                remoteVideo.srcObject = stream;
+                try {
+                    // Check if network streaming is available
+                    if (this.isWebSocketServerAvailable()) {
+                        this.showStreamingOptions();
+                    } else {
+                        this.launchLocalWindow();
+                    }
+                } catch (error) {
+                    console.error('Error in launch function:', error);
+                    // Fallback to original simple popup
+                    try {
+                        this.launchLocalWindow();
+                    } catch (fallbackError) {
+                        console.error('Fallback launch also failed:', fallbackError);
+                        alert('Unable to launch streaming. Please refresh the page and try again.');
+                    }
+                }
+            },
+            isWebSocketServerAvailable: function() {
+                // Check if we're running on a server (not file://)
+                return window.location.protocol !== 'file:';
+            },
+            showStreamingOptions: function() {
+                try {
+                    const choice = confirm(
+                        'Choose streaming mode:\n\n' +
+                        'OK = Network Streaming (stream to other devices)\n' +
+                        'Cancel = Local Window (popup window only)'
+                    );
+                    
+                    if (choice) {
+                        this.startNetworkStreaming();
+                    } else {
+                        this.launchLocalWindow();
+                    }
+                } catch (error) {
+                    console.error('Error in showStreamingOptions:', error);
+                    // Fallback to local window
+                    this.launchLocalWindow();
+                }
+            },
+            launchLocalWindow: function() {
+                try {
+                    const canvas = this.canvasToStream == 'mix' ? hydra.mixedCanvas : hydra[`deck${this.canvasToStream}`].preOutputCanvas;
+                    const stream = canvas.captureStream();
+                    const popUpWindow = window.open('', '_blank', 'toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no');
+                    
+                    if (!popUpWindow) {
+                        alert('Popup blocked! Please allow popups for this site and try again.');
+                        return;
+                    }
+                    
+                    popUpWindow.document.body.style = 'background: black; margin: 0;';
+                    const videoEl = document.createElement('video');
+                    videoEl.autoplay = true;
+                    videoEl.muted = true;
+                    videoEl.style = 'aspect-ratio: 16 / 9; width: 100%; height: 100%;';
+                    const remoteVideo = popUpWindow.document.body.appendChild(videoEl);
+                    remoteVideo.srcObject = stream;
+                } catch (error) {
+                    console.error('Error launching local window:', error);
+                    alert('Failed to launch local window. Please try refreshing the page.');
+                }
+            },
+            startNetworkStreaming: function() {
+                if (this.isNetworkStreaming) {
+                    this.stopNetworkStreaming();
+                    return;
+                }
+
+                const wsUrl = `ws://${window.location.hostname}:8081`;
+                
+                try {
+                    this.ws = new WebSocket(wsUrl);
+                    
+                    this.ws.onopen = () => {
+                        console.log('Connected to streaming server');
+                        this.ws.send(JSON.stringify({ type: 'broadcaster' }));
+                    };
+                    
+                    this.ws.onmessage = (event) => {
+                        try {
+                            const data = JSON.parse(event.data);
+                            if (data.type === 'broadcaster-ready') {
+                                this.isNetworkStreaming = true;
+                                this.startFrameCapture();
+                                this.showStreamingStatus();
+                            }
+                        } catch (parseError) {
+                            console.error('Error parsing WebSocket message:', parseError);
+                        }
+                    };
+                    
+                    this.ws.onclose = () => {
+                        console.log('Disconnected from streaming server');
+                        this.stopNetworkStreaming();
+                    };
+                    
+                    this.ws.onerror = (error) => {
+                        console.error('WebSocket error:', error);
+                        alert('Failed to connect to streaming server. Make sure the server is running.');
+                        this.stopNetworkStreaming();
+                    };
+                    
+                } catch (error) {
+                    console.error('Failed to create WebSocket connection:', error);
+                    alert('Failed to start network streaming. Make sure the server is running.');
+                }
+            },
+            startFrameCapture: function() {
+                try {
+                    const canvas = this.canvasToStream == 'mix' ? hydra.mixedCanvas : hydra[`deck${this.canvasToStream}`].preOutputCanvas;
+                    
+                    // Create a smaller canvas for streaming to reduce bandwidth
+                    this.streamCanvas = document.createElement('canvas');
+                    this.streamCanvas.width = Math.min(canvas.width, this.maxWidth);
+                    this.streamCanvas.height = Math.min(canvas.height, this.maxHeight);
+                    this.streamCtx = this.streamCanvas.getContext('2d');
+                    
+                    // Use simpler interval-based approach for stability
+                    this.streamingInterval = setInterval(() => {
+                        if (this.ws && this.ws.readyState === WebSocket.OPEN && this.isNetworkStreaming) {
+                            try {
+                                // Scale down the canvas content
+                                this.streamCtx.drawImage(canvas, 0, 0, this.streamCanvas.width, this.streamCanvas.height);
+                                
+                                // Convert to JPEG blob for compression
+                                this.streamCanvas.toBlob((blob) => {
+                                    if (blob && this.ws && this.ws.readyState === WebSocket.OPEN) {
+                                        const reader = new FileReader();
+                                        reader.onload = () => {
+                                            try {
+                                                this.ws.send(JSON.stringify({
+                                                    type: 'frame',
+                                                    imageData: reader.result,
+                                                    width: this.streamCanvas.width,
+                                                    height: this.streamCanvas.height,
+                                                    format: 'jpeg'
+                                                }));
+                                            } catch (sendError) {
+                                                console.error('Error sending frame:', sendError);
+                                            }
+                                        };
+                                        reader.readAsDataURL(blob);
+                                    }
+                                }, 'image/jpeg', this.jpegQuality);
+                            } catch (error) {
+                                console.error('Frame capture error:', error);
+                            }
+                        }
+                    }, 1000 / this.targetFPS);
+                } catch (error) {
+                    console.error('Error starting frame capture:', error);
+                }
+            },
+            stopNetworkStreaming: function() {
+                this.isNetworkStreaming = false;
+                
+                if (this.streamingInterval) {
+                    clearInterval(this.streamingInterval);
+                    this.streamingInterval = null;
+                }
+                
+                if (this.ws) {
+                    this.ws.close();
+                    this.ws = null;
+                }
+                
+                // Clean up streaming canvas
+                if (this.streamCanvas) {
+                    this.streamCanvas = null;
+                    this.streamCtx = null;
+                }
+                
+                this.hideStreamingStatus();
+            },
+            hideStreamingStatus: function() {
+                // Reset launch button
+                const launchBtn = document.getElementById('launch');
+                if (launchBtn) {
+                    launchBtn.textContent = 'Launch';
+                    launchBtn.style.background = '';
+                }
+                
+                // Remove streaming info
+                const streamInfo = document.getElementById('stream-info');
+                if (streamInfo) {
+                    streamInfo.remove();
+                }
+            },
+            showStreamingStatus: function() {
+                // Update launch button to show streaming status
+                const launchBtn = document.getElementById('launch');
+                if (launchBtn) {
+                    launchBtn.textContent = 'Stop Stream';
+                    launchBtn.style.background = '#f00';
+                }
+                
+                // Show network info
+                const hostname = window.location.hostname;
+                const port = window.location.port || '8080';
+                alert(
+                    'Network streaming started!\n\n' +
+                    `Viewers can connect to:\n` +
+                    `http://${hostname}:${port}/viewer.html\n\n` +
+                    'Click "Stop Stream" to end the stream.'
+                );
             }
         },
         storage: {
