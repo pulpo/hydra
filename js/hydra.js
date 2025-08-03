@@ -3274,11 +3274,18 @@ window.hydra = (function(){
             streamingInterval: null,
             streamCanvas: null,
             streamCtx: null,
-            // Performance settings
-            maxWidth: 640,
-            maxHeight: 360,
-            jpegQuality: 0.8,
-            targetFPS: 25,
+            // Performance settings - Default to 720p
+            maxWidth: 1280,
+            maxHeight: 720,
+            jpegQuality: 0.9,
+            targetFPS: 30,
+            // Quality presets
+            qualityPresets: {
+                '360p': { width: 640, height: 360, quality: 0.8, fps: 25 },
+                '720p': { width: 1280, height: 720, quality: 0.9, fps: 30 },
+                '1080p': { width: 1920, height: 1080, quality: 0.95, fps: 30 }
+            },
+            currentQuality: '720p',
             launch: function() {
                 try {
                     // Check if network streaming is available
@@ -3311,7 +3318,7 @@ window.hydra = (function(){
                     );
                     
                     if (choice) {
-                        this.startNetworkStreaming();
+                        this.showQualityOptions();
                     } else {
                         this.launchLocalWindow();
                     }
@@ -3319,6 +3326,129 @@ window.hydra = (function(){
                     console.error('Error in showStreamingOptions:', error);
                     // Fallback to local window
                     this.launchLocalWindow();
+                }
+            },
+            showQualityOptions: function() {
+                // Create quality selection modal
+                const modal = document.createElement('div');
+                modal.id = 'quality-modal';
+                modal.style.cssText = `
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    background: rgba(0, 0, 0, 0.8);
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    z-index: 10000;
+                    font-family: Arial, sans-serif;
+                `;
+                
+                modal.innerHTML = `
+                    <div style="
+                        background: #222;
+                        color: white;
+                        padding: 30px;
+                        border-radius: 10px;
+                        max-width: 500px;
+                        text-align: center;
+                    ">
+                        <h3 style="margin-top: 0; color: #fff;">Select Streaming Quality</h3>
+                        <p style="color: #ccc; margin-bottom: 20px;">Higher quality requires more bandwidth and processing power</p>
+                        
+                        <div style="display: flex; flex-direction: column; gap: 15px; margin: 20px 0;">
+                            <button onclick="hydra.streamer.selectQuality('360p')" style="
+                                padding: 15px;
+                                background: #333;
+                                color: white;
+                                border: 2px solid #555;
+                                border-radius: 5px;
+                                cursor: pointer;
+                                font-size: 14px;
+                            ">
+                                <strong>360p</strong> - Low Quality<br>
+                                <small style="color: #aaa;">640x360, Good for slow networks</small>
+                            </button>
+                            
+                            <button onclick="hydra.streamer.selectQuality('720p')" style="
+                                padding: 15px;
+                                background: #0a5c2b;
+                                color: white;
+                                border: 2px solid #0f7a36;
+                                border-radius: 5px;
+                                cursor: pointer;
+                                font-size: 14px;
+                            ">
+                                <strong>720p</strong> - Standard Quality (Recommended)<br>
+                                <small style="color: #ccc;">1280x720, Best balance of quality and performance</small>
+                            </button>
+                            
+                            <button onclick="hydra.streamer.selectQuality('1080p')" style="
+                                padding: 15px;
+                                background: #5c0a0a;
+                                color: white;
+                                border: 2px solid #7a0f0f;
+                                border-radius: 5px;
+                                cursor: pointer;
+                                font-size: 14px;
+                            ">
+                                <strong>1080p</strong> - High Quality<br>
+                                <small style="color: #fcc;">1920x1080, Requires fast network and powerful device</small>
+                            </button>
+                        </div>
+                        
+                        <button onclick="hydra.streamer.closeQualityModal()" style="
+                            padding: 10px 20px;
+                            background: #666;
+                            color: white;
+                            border: none;
+                            border-radius: 5px;
+                            cursor: pointer;
+                            margin-top: 10px;
+                        ">Cancel</button>
+                    </div>
+                `;
+                
+                document.body.appendChild(modal);
+            },
+            selectQuality: function(quality) {
+                // Show warning for 1080p
+                if (quality === '1080p') {
+                    const proceed = confirm(
+                        '⚠️ 1080p High Quality Warning ⚠️\n\n' +
+                        'This mode requires:\n' +
+                        '• Fast network connection (5+ Mbps)\n' +
+                        '• Powerful device (modern CPU/GPU)\n' +
+                        '• May cause lag on slower devices\n\n' +
+                        'Quality will auto-adjust if performance is poor.\n\n' +
+                        'Continue with 1080p?'
+                    );
+                    
+                    if (!proceed) {
+                        return; // Stay in quality selection
+                    }
+                }
+                
+                this.currentQuality = quality;
+                const preset = this.qualityPresets[quality];
+                
+                // Update settings
+                this.maxWidth = preset.width;
+                this.maxHeight = preset.height;
+                this.jpegQuality = preset.quality;
+                this.targetFPS = preset.fps;
+                
+                console.log(`Selected quality: ${quality} (${preset.width}x${preset.height})`);
+                
+                this.closeQualityModal();
+                this.startNetworkStreaming();
+            },
+            closeQualityModal: function() {
+                const modal = document.getElementById('quality-modal');
+                if (modal) {
+                    modal.remove();
                 }
             },
             launchLocalWindow: function() {
@@ -3399,9 +3529,16 @@ window.hydra = (function(){
                     this.streamCanvas.height = Math.min(canvas.height, this.maxHeight);
                     this.streamCtx = this.streamCanvas.getContext('2d');
                     
+                    // Performance monitoring for adaptive quality
+                    let frameCount = 0;
+                    let lastPerformanceCheck = Date.now();
+                    let frameStartTime = Date.now();
+                    
                     // Use simpler interval-based approach for stability
                     this.streamingInterval = setInterval(() => {
                         if (this.ws && this.ws.readyState === WebSocket.OPEN && this.isNetworkStreaming) {
+                            frameStartTime = Date.now();
+                            
                             try {
                                 // Scale down the canvas content
                                 this.streamCtx.drawImage(canvas, 0, 0, this.streamCanvas.width, this.streamCanvas.height);
@@ -3417,8 +3554,37 @@ window.hydra = (function(){
                                                     imageData: reader.result,
                                                     width: this.streamCanvas.width,
                                                     height: this.streamCanvas.height,
-                                                    format: 'jpeg'
+                                                    format: 'jpeg',
+                                                    quality: Math.round(this.jpegQuality * 100),
+                                                    preset: this.currentQuality
                                                 }));
+                                                
+                                                frameCount++;
+                                                
+                                                // Performance monitoring (especially important for 1080p)
+                                                const now = Date.now();
+                                                if (now - lastPerformanceCheck >= 3000) { // Check every 3 seconds
+                                                    const actualFPS = frameCount / 3;
+                                                    const frameTime = now - frameStartTime;
+                                                    
+                                                    // Auto-adjust quality for 1080p if performance is poor
+                                                    if (this.currentQuality === '1080p' && (actualFPS < this.targetFPS * 0.7 || frameTime > 100)) {
+                                                        if (this.jpegQuality > 0.7) {
+                                                            this.jpegQuality = Math.max(0.7, this.jpegQuality - 0.05);
+                                                            console.log(`1080p: Reduced quality to ${Math.round(this.jpegQuality * 100)}% due to performance`);
+                                                        }
+                                                    } else if (actualFPS > this.targetFPS * 0.95 && frameTime < 50) {
+                                                        // Restore quality if performance improves
+                                                        const originalQuality = this.qualityPresets[this.currentQuality].quality;
+                                                        if (this.jpegQuality < originalQuality) {
+                                                            this.jpegQuality = Math.min(originalQuality, this.jpegQuality + 0.02);
+                                                            console.log(`${this.currentQuality}: Increased quality to ${Math.round(this.jpegQuality * 100)}%`);
+                                                        }
+                                                    }
+                                                    
+                                                    frameCount = 0;
+                                                    lastPerformanceCheck = now;
+                                                }
                                             } catch (sendError) {
                                                 console.error('Error sending frame:', sendError);
                                             }
@@ -3474,15 +3640,18 @@ window.hydra = (function(){
                 // Update launch button to show streaming status
                 const launchBtn = document.getElementById('launch');
                 if (launchBtn) {
-                    launchBtn.textContent = 'Stop Stream';
+                    launchBtn.textContent = `Stop Stream (${this.currentQuality})`;
                     launchBtn.style.background = '#f00';
                 }
                 
-                // Show network info
+                // Show network info with quality details
                 const hostname = window.location.hostname;
                 const port = window.location.port || '8080';
+                const preset = this.qualityPresets[this.currentQuality];
+                
                 alert(
-                    'Network streaming started!\n\n' +
+                    `Network streaming started in ${this.currentQuality}!\n\n` +
+                    `Quality: ${preset.width}x${preset.height} @ ${preset.fps}fps\n` +
                     `Viewers can connect to:\n` +
                     `http://${hostname}:${port}/viewer.html\n\n` +
                     'Click "Stop Stream" to end the stream.'

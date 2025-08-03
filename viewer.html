@@ -28,6 +28,33 @@
             max-width: 100%;
             max-height: 100%;
             border: 2px solid #333;
+            image-rendering: -webkit-optimize-contrast;
+            image-rendering: -moz-crisp-edges;
+            image-rendering: crisp-edges;
+            image-rendering: pixelated;
+        }
+        
+        /* Fullscreen styles */
+        #stream-canvas.fullscreen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw !important;
+            height: 100vh !important;
+            max-width: none !important;
+            max-height: none !important;
+            border: none;
+            z-index: 9999;
+            object-fit: contain;
+        }
+        
+        body.fullscreen-active {
+            overflow: hidden;
+        }
+        
+        body.fullscreen-active #status,
+        body.fullscreen-active #controls {
+            z-index: 10000;
         }
         
         #status {
@@ -146,12 +173,21 @@
         
         <div id="controls" class="hidden">
             <div class="control-group">
-                <button onclick="toggleFullscreen()">Fullscreen</button>
+                <button onclick="toggleFullscreen()" id="fullscreen-btn">Fullscreen</button>
                 <button onclick="disconnect()">Disconnect</button>
             </div>
             <div class="control-group">
                 <span id="fps-counter">FPS: 0</span>
-                <span id="quality-info">Quality: Auto</span>
+                <span id="resolution-info">Resolution: -</span>
+            </div>
+            <div class="control-group">
+                <label style="font-size: 12px;">
+                    Scaling: 
+                    <select id="scaling-mode" onchange="updateScalingMode()">
+                        <option value="smooth">Smooth</option>
+                        <option value="pixelated" selected>Crisp</option>
+                    </select>
+                </label>
             </div>
         </div>
     </div>
@@ -192,7 +228,7 @@
                             showViewer();
                         } else if (data.type === 'frame') {
                             if (data.format === 'jpeg') {
-                                displayJpegFrame(data.imageData, data.width, data.height);
+                                displayJpegFrame(data.imageData, data.width, data.height, data.quality, data.preset);
                             } else {
                                 displayFrame(data.imageData, data.width, data.height);
                             }
@@ -250,22 +286,65 @@
             updateStatus('Streaming', 'connected');
         }
 
-        function displayJpegFrame(base64Data, width, height) {
+        function displayJpegFrame(base64Data, width, height, quality, preset) {
             if (!canvas || !ctx) return;
 
             // Set canvas size if it changed
             if (canvas.width !== width || canvas.height !== height) {
                 canvas.width = width;
                 canvas.height = height;
+                
+                // Update resolution info
+                const resInfo = document.getElementById('resolution-info');
+                if (resInfo) {
+                    const qualityText = quality ? ` (${quality}%)` : '';
+                    const presetText = preset ? ` ${preset}` : '';
+                    resInfo.textContent = `${width}x${height}${presetText}${qualityText}`;
+                }
             }
 
             // Create image from base64 JPEG data
             const img = new Image();
             img.onload = function() {
-                ctx.drawImage(img, 0, 0, width, height);
+                // Clear canvas first for better quality
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                
+                // Apply scaling mode
+                updateCanvasSmoothing();
+                
+                // Draw image at exact canvas size
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
                 updateStatus('Streaming', 'connected');
             };
             img.src = base64Data;
+        }
+
+        function updateCanvasSmoothing() {
+            if (!ctx) return;
+            
+            const scalingMode = document.getElementById('scaling-mode').value;
+            const smooth = scalingMode === 'smooth';
+            
+            ctx.imageSmoothingEnabled = smooth;
+            ctx.webkitImageSmoothingEnabled = smooth;
+            ctx.mozImageSmoothingEnabled = smooth;
+            ctx.msImageSmoothingEnabled = smooth;
+            
+            if (smooth) {
+                ctx.imageSmoothingQuality = 'high';
+            }
+        }
+
+        function updateScalingMode() {
+            const scalingMode = document.getElementById('scaling-mode').value;
+            if (canvas) {
+                if (scalingMode === 'pixelated') {
+                    canvas.style.imageRendering = 'pixelated';
+                    canvas.style.imageRendering = 'crisp-edges';
+                } else {
+                    canvas.style.imageRendering = 'auto';
+                }
+            }
         }
 
         function updateStatus(text, status) {
@@ -287,13 +366,116 @@
             }
         }
 
+        let isFullscreen = false;
+
         function toggleFullscreen() {
-            if (!document.fullscreenElement) {
-                document.documentElement.requestFullscreen();
+            if (!isFullscreen) {
+                enterFullscreen();
             } else {
-                document.exitFullscreen();
+                exitFullscreen();
             }
         }
+
+        function enterFullscreen() {
+            if (!canvas) return;
+            
+            // Update button text
+            const btn = document.getElementById('fullscreen-btn');
+            if (btn) btn.textContent = 'Exit Fullscreen';
+            
+            // Try native fullscreen first
+            if (canvas.requestFullscreen) {
+                canvas.requestFullscreen().then(() => {
+                    isFullscreen = true;
+                    canvas.classList.add('fullscreen');
+                    document.body.classList.add('fullscreen-active');
+                }).catch(() => {
+                    // Fallback to manual fullscreen
+                    manualFullscreen();
+                });
+            } else if (canvas.webkitRequestFullscreen) {
+                canvas.webkitRequestFullscreen();
+                isFullscreen = true;
+                canvas.classList.add('fullscreen');
+                document.body.classList.add('fullscreen-active');
+            } else if (canvas.mozRequestFullScreen) {
+                canvas.mozRequestFullScreen();
+                isFullscreen = true;
+                canvas.classList.add('fullscreen');
+                document.body.classList.add('fullscreen-active');
+            } else if (canvas.msRequestFullscreen) {
+                canvas.msRequestFullscreen();
+                isFullscreen = true;
+                canvas.classList.add('fullscreen');
+                document.body.classList.add('fullscreen-active');
+            } else {
+                // Manual fullscreen fallback
+                manualFullscreen();
+            }
+        }
+
+        function manualFullscreen() {
+            canvas.classList.add('fullscreen');
+            document.body.classList.add('fullscreen-active');
+            isFullscreen = true;
+            
+            // Scale canvas to fit screen while maintaining aspect ratio
+            const screenRatio = window.innerWidth / window.innerHeight;
+            const canvasRatio = canvas.width / canvas.height;
+            
+            if (screenRatio > canvasRatio) {
+                // Screen is wider than canvas
+                canvas.style.height = '100vh';
+                canvas.style.width = 'auto';
+            } else {
+                // Screen is taller than canvas
+                canvas.style.width = '100vw';
+                canvas.style.height = 'auto';
+            }
+        }
+
+        function exitFullscreen() {
+            // Update button text
+            const btn = document.getElementById('fullscreen-btn');
+            if (btn) btn.textContent = 'Fullscreen';
+            
+            if (document.exitFullscreen) {
+                document.exitFullscreen();
+            } else if (document.webkitExitFullscreen) {
+                document.webkitExitFullscreen();
+            } else if (document.mozCancelFullScreen) {
+                document.mozCancelFullScreen();
+            } else if (document.msExitFullscreen) {
+                document.msExitFullscreen();
+            }
+            
+            // Manual cleanup
+            canvas.classList.remove('fullscreen');
+            document.body.classList.remove('fullscreen-active');
+            canvas.style.width = '';
+            canvas.style.height = '';
+            isFullscreen = false;
+        }
+
+        // Listen for fullscreen changes
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+        document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+        document.addEventListener('MSFullscreenChange', handleFullscreenChange);
+
+        function handleFullscreenChange() {
+            if (!document.fullscreenElement && !document.webkitFullscreenElement && 
+                !document.mozFullScreenElement && !document.msFullscreenElement) {
+                exitFullscreen();
+            }
+        }
+
+        // ESC key to exit fullscreen
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && isFullscreen) {
+                exitFullscreen();
+            }
+        });
 
         function disconnect() {
             if (ws) {
