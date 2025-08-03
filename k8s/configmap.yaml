@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hydra-config
+  namespace: hydra
+  labels:
+    app: hydra
+    component: vj-mixer
+data:
+  # Server configuration
+  HTTP_PORT: "8080"
+  WS_PORT: "8081"
+  NODE_ENV: "production"
+  
+  # Performance settings
+  MAX_CONNECTIONS: "100"
+  FRAME_RATE: "30"
+  
+  # CORS settings (if needed)
+  CORS_ORIGIN: "*"
+  
+  # Logging
+  LOG_LEVEL: "info"

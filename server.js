@@ -3,8 +3,8 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-const PORT = 8080;
-const WS_PORT = 8081;
+const PORT = process.env.PORT || 8080;
+const WS_PORT = process.env.WS_PORT || 8081;
 
 // Create HTTP server for serving files
 const server = http.createServer((req, res) => {
@@ -124,14 +124,22 @@ wss.on('connection', (ws, req) => {
     });
 });
 
-server.listen(PORT, () => {
-    console.log(`HTTP Server running at http://localhost:${PORT}/`);
-    console.log(`WebSocket Server running at ws://localhost:${WS_PORT}/`);
+server.listen(PORT, '0.0.0.0', () => {
+    console.log(`HTTP Server running at http://0.0.0.0:${PORT}/`);
+    console.log(`WebSocket Server running at ws://0.0.0.0:${WS_PORT}/`);
     console.log('');
-    console.log('To access from other devices on your network:');
-    console.log('1. Find your local IP address (usually 192.168.x.x or 10.x.x.x)');
-    console.log('2. Open http://YOUR_IP:8080/ on other devices');
-    console.log('3. Use the viewer page at http://YOUR_IP:8080/viewer.html');
+    
+    if (process.env.NODE_ENV === 'production') {
+        console.log('🎵 Hydra VJ Mixer - Production Mode');
+        console.log('==================================');
+        console.log('Main interface: http://localhost:' + PORT);
+        console.log('Viewer page: http://localhost:' + PORT + '/viewer.html');
+    } else {
+        console.log('To access from other devices on your network:');
+        console.log('1. Find your local IP address (usually 192.168.x.x or 10.x.x.x)');
+        console.log('2. Open http://YOUR_IP:' + PORT + '/ on other devices');
+        console.log('3. Use the viewer page at http://YOUR_IP:' + PORT + '/viewer.html');
+    }
 });
 
 console.log('Hydra Network Streaming Server');
