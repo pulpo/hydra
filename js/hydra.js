@@ -310,7 +310,7 @@ window.hydra = (function(){
                     markup += `<span class="input-label">${item.label}</span>`;
                 }
 
-                markup += `<textarea data-deck="${deckId}" data-visual="${name}" data-variable="${item.variable}"></textarea>
+                markup += `<textarea data-deck="${deckId}" data-visual="${name}" data-variable="${item.variable}" ${item.placeholder ? `placeholder="${item.placeholder}"` : ''}></textarea>
                 </div>`;
 
                 return markup;
@@ -3525,7 +3525,7 @@ window.hydra = (function(){
                     return;
                 }
 
-                const wsUrl = `ws://${window.location.hostname}:8081`;
+                const wsUrl = `ws://${window.location.hostname}:8082`;
                 
                 try {
                     this.ws = new WebSocket(wsUrl);

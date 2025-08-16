@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 
 const PORT = process.env.PORT || 8080;
-const WS_PORT = process.env.WS_PORT || 8081;
+const WS_PORT = process.env.WS_PORT || 8082;
 
 // Create HTTP server for serving files
 const server = http.createServer((req, res) => {

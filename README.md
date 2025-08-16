@@ -29,7 +29,7 @@ Available online at https://hydra.virusav.com/
   - Tapestry Fract 2 (modification of code ported from https://editor.isf.video/shaders/295)
   - Text
   - Tunnel
-  - Video
+  - Video (supports local files and YouTube URLs)
   - Wave
 - Visual blend/layer composition modes
   - Color-burn
