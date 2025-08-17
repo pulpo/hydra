@@ -179,6 +179,7 @@
             <div class="control-group">
                 <span id="fps-counter">FPS: 0</span>
                 <span id="resolution-info">Resolution: -</span>
+                <span id="latency-info">Latency: -</span>
             </div>
             <div class="control-group">
                 <label style="font-size: 12px;">
@@ -199,6 +200,8 @@
         let isConnected = false;
         let frameCount = 0;
         let lastFpsUpdate = Date.now();
+        let frameTimestamps = [];
+        let averageFrameTime = 0;
 
         function connectToStream() {
             const serverIp = document.getElementById('server-ip').value.trim();
@@ -227,6 +230,16 @@
                             updateStatus('Connected - Waiting for stream...', 'connected');
                             showViewer();
                         } else if (data.type === 'frame') {
+                            // Check WebSocket buffer health
+                            if (ws.bufferedAmount > 512 * 1024) { // 512KB threshold
+                                console.warn('WebSocket buffer getting full:', ws.bufferedAmount);
+                                // Request lower quality from server
+                                ws.send(JSON.stringify({
+                                    type: 'quality-request',
+                                    requestedQuality: 'low'
+                                }));
+                            }
+                            
                             if (data.format === 'jpeg') {
                                 displayJpegFrame(data.imageData, data.width, data.height, data.quality, data.preset);
                             } else {
@@ -303,20 +316,26 @@
                 }
             }
 
-            // Create image from base64 JPEG data
-            const img = new Image();
-            img.onload = function() {
-                // Clear canvas first for better quality
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                
-                // Apply scaling mode
-                updateCanvasSmoothing();
-                
-                // Draw image at exact canvas size
-                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                updateStatus('Streaming', 'connected');
-            };
-            img.src = base64Data;
+            // Use requestAnimationFrame for smoother rendering
+            requestAnimationFrame(() => {
+                // Create image from base64 JPEG data
+                const img = new Image();
+                img.onload = function() {
+                    // Use willReadFrequently for better performance on frequent reads
+                    if (!ctx.willReadFrequently) {
+                        ctx.willReadFrequently = true;
+                    }
+                    
+                    // Apply scaling mode before drawing
+                    updateCanvasSmoothing();
+                    
+                    // Draw image at exact canvas size with optimized compositing
+                    ctx.globalCompositeOperation = 'source-over';
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    updateStatus('Streaming', 'connected');
+                };
+                img.src = base64Data;
+            });
         }
 
         function updateCanvasSmoothing() {
@@ -358,9 +377,39 @@
         function updateFpsCounter() {
             frameCount++;
             const now = Date.now();
+            
+            // Track frame timing for network performance monitoring
+            frameTimestamps.push(now);
+            if (frameTimestamps.length > 10) {
+                frameTimestamps.shift();
+            }
+            
+            // Calculate average frame time
+            if (frameTimestamps.length > 1) {
+                const totalTime = frameTimestamps[frameTimestamps.length - 1] - frameTimestamps[0];
+                averageFrameTime = totalTime / (frameTimestamps.length - 1);
+            }
+            
             if (now - lastFpsUpdate >= 1000) {
                 const fps = Math.round(frameCount * 1000 / (now - lastFpsUpdate));
-                document.getElementById('fps-counter').textContent = `FPS: ${fps}`;
+                const fpsElement = document.getElementById('fps-counter');
+                
+                // Color-code FPS based on performance
+                let fpsColor = '#0f0'; // Green for good performance
+                if (fps < 15) fpsColor = '#f00'; // Red for poor performance
+                else if (fps < 25) fpsColor = '#ff0'; // Yellow for moderate performance
+                
+                fpsElement.innerHTML = `<span style="color: ${fpsColor}">FPS: ${fps}</span>`;
+                
+                // Send performance feedback to server
+                if (ws && averageFrameTime > 50) { // If frames taking longer than 50ms
+                    ws.send(JSON.stringify({
+                        type: 'performance-feedback',
+                        averageFrameTime: averageFrameTime,
+                        fps: fps
+                    }));
+                }
+                
                 frameCount = 0;
                 lastFpsUpdate = now;
             }

@@ -65,21 +65,56 @@ wss.on('connection', (ws, req) => {
             
             if (data.type === 'broadcaster') {
                 broadcaster = ws;
+                ws.qualityMode = 'high'; // Default quality
                 console.log('Broadcaster connected');
                 ws.send(JSON.stringify({ type: 'broadcaster-ready' }));
             } else if (data.type === 'viewer') {
                 streamingClients.add(ws);
+                ws.preferredQuality = 'auto';
+                ws.performanceScore = 100; // Start with good performance
                 console.log('Viewer connected. Total viewers:', streamingClients.size);
                 ws.send(JSON.stringify({ type: 'viewer-ready' }));
+            } else if (data.type === 'performance-feedback') {
+                // Adjust quality based on client performance
+                if (data.averageFrameTime > 100) {
+                    ws.performanceScore = Math.max(20, ws.performanceScore - 10);
+                } else if (data.averageFrameTime < 30) {
+                    ws.performanceScore = Math.min(100, ws.performanceScore + 5);
+                }
+                console.log(`Client performance: ${data.fps}fps, score: ${ws.performanceScore}`);
+            } else if (data.type === 'quality-request') {
+                ws.preferredQuality = data.requestedQuality;
+                console.log('Client requested quality:', data.requestedQuality);
             } else if (data.type === 'frame' && ws === broadcaster) {
-                // Broadcast frame to all viewers (more efficiently)
-                const frameMessage = JSON.stringify(data);
+                // Optimize frame data before broadcasting
+                const now = Date.now();
+                const timeSinceLastFrame = now - (ws.lastFrameTime || 0);
+                
+                // Adaptive quality based on viewer count and network conditions
+                let optimizedData = data;
+                if (streamingClients.size > 3) {
+                    // Reduce quality for multiple viewers
+                    optimizedData.quality = Math.max(30, (data.quality || 80) - (streamingClients.size * 5));
+                }
+                
+                // Skip frames if sending too fast (maintain ~30fps max)
+                if (timeSinceLastFrame < 33) {
+                    return;
+                }
+                ws.lastFrameTime = now;
+                
+                const frameMessage = JSON.stringify(optimizedData);
                 const deadClients = [];
                 
                 streamingClients.forEach(client => {
                     if (client.readyState === WebSocket.OPEN) {
                         try {
-                            client.send(frameMessage);
+                            // Use bufferedAmount to check if client is keeping up
+                            if (client.bufferedAmount < 1024 * 1024) { // 1MB buffer limit
+                                client.send(frameMessage);
+                            } else {
+                                console.log('Client buffer full, skipping frame');
+                            }
                         } catch (error) {
                             console.error('Error sending to client:', error);
                             deadClients.push(client);
