@@ -97,7 +97,7 @@ window.hydra.renderers['video'] = {
                 ...[1,2,3,4,5,6,7,8,9,10].map(n => ({
                     heading: `Video ${n}`,
                     class: 'flex-grid',
-                    attributes: 'data-columns="4"',
+                    attributes: 'data-columns="2"',
                     items: [
                         {
                             type: 'file',
@@ -111,13 +111,7 @@ window.hydra.renderers['video'] = {
                             containerClass: 'direct-url-input',
                             placeholder: 'https://example.com/video.mp4 or .gif'
                         },
-                        {
-                            type: 'textarea',
-                            label: 'YouTube URL',
-                            variable: `youtubeUrl${n}`,
-                            containerClass: 'youtube-url-input',
-                            placeholder: 'https://www.youtube.com/watch?v=...'
-                        },
+
                         {
                             type: 'button',
                             label: 'Play',
@@ -133,6 +127,235 @@ window.hydra.renderers['video'] = {
         };
 
         deck.video = window.hydra.renderer.init(deck, 'video', {defaults, ui});
+
+        // Create thumbnail containers for each video slot after DOM is ready
+        setTimeout(() => {
+            for (let i = 1; i <= 10; i++) {
+                const playButton = document.querySelector(`[data-deck="${deck.id}"][data-variable="play${i}"]`);
+                if (playButton) {
+                    const thumbnailContainer = document.createElement('div');
+                    thumbnailContainer.className = 'video-thumbnail-container';
+                    thumbnailContainer.innerHTML = `
+                        <canvas class="video-thumbnail" width="120" height="68" data-deck="${deck.id}" data-video-slot="${i}"></canvas>
+                        <div class="thumbnail-overlay">No preview</div>
+                    `;
+                    
+                    // Insert thumbnail container after the play button's parent
+                    const playButtonParent = playButton.parentElement;
+                    if (playButtonParent) {
+                        playButtonParent.appendChild(thumbnailContainer);
+                    }
+                }
+            }
+        }, 500); // Increased timeout to ensure DOM is ready
+
+        // Thumbnail generation functions
+        function generateVideoThumbnail(videoElement, thumbnailCanvas, callback) {
+            const ctx = thumbnailCanvas.getContext('2d');
+            const container = thumbnailCanvas.closest('.video-thumbnail-container');
+            const overlay = container.querySelector('.thumbnail-overlay');
+            
+            // Set loading state
+            container.classList.add('loading');
+            container.classList.remove('has-preview', 'error');
+            overlay.textContent = 'Loading...';
+            
+            // Wait for video metadata to load
+            const onLoadedMetadata = () => {
+                try {
+                    const aspectRatio = videoElement.videoWidth / videoElement.videoHeight;
+                    
+                    // Calculate dimensions maintaining aspect ratio
+                    let drawWidth = 120;
+                    let drawHeight = 120 / aspectRatio;
+                    
+                    if (drawHeight > 68) {
+                        drawHeight = 68;
+                        drawWidth = 68 * aspectRatio;
+                    }
+                    
+                    const x = (120 - drawWidth) / 2;
+                    const y = (68 - drawHeight) / 2;
+                    
+                    // Clear canvas and draw thumbnail
+                    ctx.clearRect(0, 0, 120, 68);
+                    ctx.fillStyle = '#000';
+                    ctx.fillRect(0, 0, 120, 68);
+                    ctx.drawImage(videoElement, x, y, drawWidth, drawHeight);
+                    
+                    // Update container state
+                    container.classList.remove('loading');
+                    container.classList.add('has-preview');
+                    
+                    if (callback) callback();
+                } catch (error) {
+                    console.error('Error generating video thumbnail:', error);
+                    container.classList.remove('loading');
+                    container.classList.add('error');
+                    overlay.textContent = 'Error loading';
+                }
+                
+                videoElement.removeEventListener('loadedmetadata', onLoadedMetadata);
+            };
+            
+            videoElement.addEventListener('loadedmetadata', onLoadedMetadata);
+            
+            // If metadata is already loaded
+            if (videoElement.readyState >= 1) {
+                onLoadedMetadata();
+            }
+        }
+        
+        function generateGifThumbnail(gifPlayer, thumbnailCanvas) {
+            const ctx = thumbnailCanvas.getContext('2d');
+            const container = thumbnailCanvas.closest('.video-thumbnail-container');
+            const overlay = container.querySelector('.thumbnail-overlay');
+            
+            try {
+                const firstFrameCanvas = gifPlayer.getCurrentCanvas();
+                const aspectRatio = firstFrameCanvas.width / firstFrameCanvas.height;
+                
+                // Calculate dimensions maintaining aspect ratio
+                let drawWidth = 120;
+                let drawHeight = 120 / aspectRatio;
+                
+                if (drawHeight > 68) {
+                    drawHeight = 68;
+                    drawWidth = 68 * aspectRatio;
+                }
+                
+                const x = (120 - drawWidth) / 2;
+                const y = (68 - drawHeight) / 2;
+                
+                // Clear canvas and draw thumbnail
+                ctx.clearRect(0, 0, 120, 68);
+                ctx.fillStyle = '#000';
+                ctx.fillRect(0, 0, 120, 68);
+                ctx.drawImage(firstFrameCanvas, x, y, drawWidth, drawHeight);
+                
+                // Update container state
+                container.classList.remove('loading', 'error');
+                container.classList.add('has-preview');
+                
+            } catch (error) {
+                console.error('Error generating GIF thumbnail:', error);
+                container.classList.remove('loading');
+                container.classList.add('error');
+                overlay.textContent = 'Error loading';
+            }
+        }
+        
+        function generateThumbnailFromUrl(url, thumbnailCanvas, isGif = false) {
+            if (!thumbnailCanvas) return;
+            
+            const container = thumbnailCanvas.closest('.video-thumbnail-container');
+            if (!container) return;
+            
+            const overlay = container.querySelector('.thumbnail-overlay');
+            const ctx = thumbnailCanvas.getContext('2d');
+            
+            // Set loading state
+            container.classList.add('loading');
+            container.classList.remove('has-preview', 'error');
+            if (overlay) overlay.textContent = 'Loading...';
+            
+            // SIMPLIFIED APPROACH: Just try to load as image directly
+            const img = new Image();
+            
+            // Try without crossOrigin first (works for most cases)
+            img.onload = function() {
+                try {
+                    // Calculate dimensions
+                    const aspectRatio = img.width / img.height;
+                    let drawWidth = 120;
+                    let drawHeight = 120 / aspectRatio;
+                    
+                    if (drawHeight > 68) {
+                        drawHeight = 68;
+                        drawWidth = 68 * aspectRatio;
+                    }
+                    
+                    const x = (120 - drawWidth) / 2;
+                    const y = (68 - drawHeight) / 2;
+                    
+                    // Clear and draw
+                    ctx.clearRect(0, 0, 120, 68);
+                    ctx.fillStyle = '#000';
+                    ctx.fillRect(0, 0, 120, 68);
+                    ctx.drawImage(img, x, y, drawWidth, drawHeight);
+                    
+                    // Success!
+                    container.classList.remove('loading');
+                    container.classList.add('has-preview');
+                    
+                } catch (error) {
+                    console.warn('Canvas drawing failed:', error);
+                    createPlaceholder();
+                }
+            };
+            
+            img.onerror = function() {
+                console.warn('Image load failed, creating placeholder');
+                createPlaceholder();
+            };
+            
+            function createPlaceholder() {
+                // Create a simple but informative placeholder
+                ctx.clearRect(0, 0, 120, 68);
+                
+                if (isGif) {
+                    // GIF placeholder
+                    ctx.fillStyle = '#4a7c59';
+                    ctx.fillRect(0, 0, 120, 68);
+                    ctx.fillStyle = '#fff';
+                    ctx.font = '10px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('GIF', 60, 20);
+                    ctx.fillText('READY', 60, 35);
+                    ctx.fillText('Press Play', 60, 55);
+                } else {
+                    // Video placeholder
+                    ctx.fillStyle = '#2d4a7c';
+                    ctx.fillRect(0, 0, 120, 68);
+                    
+                    // Draw play button
+                    ctx.fillStyle = '#fff';
+                    ctx.beginPath();
+                    ctx.moveTo(50, 24);
+                    ctx.lineTo(70, 34);
+                    ctx.lineTo(50, 44);
+                    ctx.closePath();
+                    ctx.fill();
+                    
+                    ctx.font = '8px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('VIDEO READY', 60, 57);
+                }
+                
+                container.classList.remove('loading');
+                container.classList.add('has-preview');
+            }
+            
+            // Start loading
+            img.src = url;
+            
+            // Timeout fallback
+            setTimeout(() => {
+                if (container.classList.contains('loading')) {
+                    createPlaceholder();
+                }
+            }, 5000);
+        }
+        
+        function clearThumbnail(thumbnailCanvas) {
+            const ctx = thumbnailCanvas.getContext('2d');
+            const container = thumbnailCanvas.closest('.video-thumbnail-container');
+            const overlay = container.querySelector('.thumbnail-overlay');
+            
+            ctx.clearRect(0, 0, 120, 68);
+            container.classList.remove('loading', 'has-preview', 'error');
+            overlay.textContent = 'No preview';
+        }
 
         const fileInputs = [
             deck.video.file1Input,
@@ -160,32 +383,9 @@ window.hydra.renderers['video'] = {
             deck.video.directUrl10Input,
         ];
 
-        const youtubeUrlInputs = [
-            deck.video.youtubeUrl1Input,
-            deck.video.youtubeUrl2Input,
-            deck.video.youtubeUrl3Input,
-            deck.video.youtubeUrl4Input,
-            deck.video.youtubeUrl5Input,
-            deck.video.youtubeUrl6Input,
-            deck.video.youtubeUrl7Input,
-            deck.video.youtubeUrl8Input,
-            deck.video.youtubeUrl9Input,
-            deck.video.youtubeUrl10Input,
-        ];
 
-        function extractYouTubeVideoId(url) {
-            const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
-            const match = url.match(regExp);
-            return (match && match[2].length === 11) ? match[2] : null;
-        }
 
-        function createYouTubeEmbedUrl(videoId) {
-            return `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&controls=0&loop=1&playlist=${videoId}&enablejsapi=1&origin=${window.location.origin}`;
-        }
 
-        function getYouTubeThumbnail(videoId) {
-            return `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`;
-        }
 
         fileInputs.forEach((fileInput, index) => {
             fileInput.onchange = (e) => {
@@ -200,14 +400,16 @@ window.hydra.renderers['video'] = {
                         playBtn.disabled = false;
                         playBtn.videoSource = { type: 'file', url: url };
                         
-                        // Clear URL inputs when file is selected
-                        const youtubeInput = youtubeUrlInputs[index];
+                        // Clear URL input when file is selected
                         const directUrlInput = directUrlInputs[index];
-                        if (youtubeInput) {
-                            youtubeInput.value = '';
-                        }
                         if (directUrlInput) {
                             directUrlInput.value = '';
+                        }
+                        
+                        // Generate thumbnail for the uploaded file
+                        const thumbnailCanvas = document.querySelector(`[data-deck="${deck.id}"][data-video-slot="${index + 1}"]`);
+                        if (thumbnailCanvas) {
+                            generateThumbnailFromUrl(url, thumbnailCanvas, false);
                         }
                     }
                     reader.readAsDataURL(file);
@@ -229,72 +431,54 @@ window.hydra.renderers['video'] = {
                             playBtn.disabled = false;
                             playBtn.videoSource = { type: 'direct', url: url, isGif: isGif };
                             
-                            // Clear other inputs when direct URL is entered
+                            // Clear file input when direct URL is entered
                             const fileInput = fileInputs[index];
-                            const youtubeInput = youtubeUrlInputs[index];
                             if (fileInput) {
                                 fileInput.value = '';
                             }
-                            if (youtubeInput) {
-                                youtubeInput.value = '';
+                            
+                        // Generate thumbnail for the URL with delay to ensure DOM is ready
+                        setTimeout(() => {
+                            const thumbnailCanvas = document.querySelector(`[data-deck="${deck.id}"][data-video-slot="${index + 1}"]`);
+                            if (thumbnailCanvas) {
+                                generateThumbnailFromUrl(url, thumbnailCanvas, isGif);
                             }
+                        }, 600);
                         } catch {
                             const playBtn = directUrlInput.closest('group').querySelector('button');
                             playBtn.className = 'red';
                             playBtn.disabled = true;
                             playBtn.videoSource = null;
+                            
+                            // Clear thumbnail on invalid URL
+                            const thumbnailCanvas = document.querySelector(`[data-deck="${deck.id}"][data-video-slot="${index + 1}"]`);
+                            if (thumbnailCanvas) {
+                                clearThumbnail(thumbnailCanvas);
+                            }
                         }
                     } else {
                         const playBtn = directUrlInput.closest('group').querySelector('button');
                         playBtn.className = 'red';
                         playBtn.disabled = true;
                         playBtn.videoSource = null;
+                        
+                        // Clear thumbnail when URL is empty
+                        const thumbnailCanvas = document.querySelector(`[data-deck="${deck.id}"][data-video-slot="${index + 1}"]`);
+                        if (thumbnailCanvas) {
+                            clearThumbnail(thumbnailCanvas);
+                        }
                     }
                 });
             }
         });
 
-        youtubeUrlInputs.forEach((youtubeInput, index) => {
-            if (youtubeInput) {
-                youtubeInput.addEventListener('input', function(e) {
-                    const url = e.target.value.trim();
-                    if (url) {
-                        const videoId = extractYouTubeVideoId(url);
-                        if (videoId) {
-                            const playBtn = youtubeInput.closest('group').querySelector('button');
-                            playBtn.className = 'orange';
-                            playBtn.disabled = false;
-                            playBtn.videoSource = { type: 'youtube', videoId: videoId, originalUrl: url };
-                            
-                            // Clear other inputs when YouTube URL is entered
-                            const fileInput = fileInputs[index];
-                            const directUrlInput = directUrlInputs[index];
-                            if (fileInput) {
-                                fileInput.value = '';
-                            }
-                            if (directUrlInput) {
-                                directUrlInput.value = '';
-                            }
-                        } else {
-                            const playBtn = youtubeInput.closest('group').querySelector('button');
-                            playBtn.className = 'red';
-                            playBtn.disabled = true;
-                            playBtn.videoSource = null;
-                        }
-                    } else {
-                        const playBtn = youtubeInput.closest('group').querySelector('button');
-                        playBtn.className = 'red';
-                        playBtn.disabled = true;
-                        playBtn.videoSource = null;
-                    }
-                });
-            }
-        });
+
 
         // Add click handlers for play buttons
         const playButtons = document.querySelectorAll(`[data-deck="${deck.id}"][data-tab-panel="renderer"] button[data-variable^="play"]`);
-        playButtons.forEach(playBtn => {
+        playButtons.forEach((playBtn, buttonIndex) => {
             playBtn.addEventListener('click', function(e) {
+                const slotNumber = buttonIndex + 1;
                 if (playBtn.videoSource) {
                     // Clear previous video sources
                     deck.videoEl.pause();
@@ -304,8 +488,6 @@ window.hydra.renderers['video'] = {
                         deck.gifPlayer = null;
                     }
                     deck.currentVideoSource = null;
-                    deck.currentYouTubeVideoId = null;
-                    deck.youtubeThumbnailLoaded = false;
                     deck.gifImageLoaded = false;
                     
                     // Reset all play buttons
@@ -343,6 +525,12 @@ window.hydra.renderers['video'] = {
                                         deck.gifPlayer.play();
                                         deck.gifImageLoaded = true;
                                         console.log(`Loaded GIF with ${gifData.frames.length} frames`);
+                                        
+                                        // Generate GIF thumbnail
+                                        const thumbnailCanvas = document.querySelector(`[data-deck="${deck.id}"][data-video-slot="${slotNumber}"]`);
+                                        if (thumbnailCanvas) {
+                                            generateGifThumbnail(deck.gifPlayer, thumbnailCanvas);
+                                        }
                                     } else {
                                         console.error('No frames found in GIF');
                                         deck.gifImageLoaded = false;
@@ -361,38 +549,6 @@ window.hydra.renderers['video'] = {
                             deck.videoEl.playbackRate = deck.video.playbackRate;
                             deck.currentVideoSource = 'file';
                         }
-                    } else if (playBtn.videoSource.type === 'youtube') {
-                        // Handle YouTube video
-                        const embedUrl = createYouTubeEmbedUrl(playBtn.videoSource.videoId);
-                        const thumbnailUrl = getYouTubeThumbnail(playBtn.videoSource.videoId);
-                        
-                        // Create iframe for YouTube video (hidden, for potential future use)
-                        if (!deck.youtubeIframe) {
-                            deck.youtubeIframe = document.createElement('iframe');
-                            deck.youtubeIframe.style.display = 'none';
-                            deck.youtubeIframe.allow = 'autoplay';
-                            document.body.appendChild(deck.youtubeIframe);
-                        }
-                        
-                        // Load thumbnail image for display
-                        if (!deck.youtubeThumbnail) {
-                            deck.youtubeThumbnail = new Image();
-                            deck.youtubeThumbnail.crossOrigin = 'anonymous';
-                        }
-                        
-                        deck.youtubeThumbnail.onload = () => {
-                            deck.youtubeThumbnailLoaded = true;
-                        };
-                        
-                        deck.youtubeThumbnail.onerror = () => {
-                            deck.youtubeThumbnailLoaded = false;
-                        };
-                        
-                        deck.youtubeThumbnail.src = thumbnailUrl;
-                        deck.youtubeIframe.src = embedUrl;
-                        deck.currentVideoSource = 'youtube';
-                        deck.currentYouTubeVideoId = playBtn.videoSource.videoId;
-                        deck.currentYouTubeUrl = playBtn.videoSource.originalUrl;
                     }
                     
                     stopReversePlayback();
@@ -640,81 +796,6 @@ window.hydra.renderers['video'] = {
                     deck.ctx.fillStyle = 'white';
                     deck.ctx.fillRect(0, 0, deck.canvas.width, deck.canvas.height);
                     deck.ctx.globalCompositeOperation = 'source-over';
-                }
-                
-                deck.ctx.restore();
-                
-            } else if (deck.currentVideoSource === 'youtube' && deck.youtubeIframe) {
-                deck.ctx.save();
-                
-                // Clear canvas
-                deck.ctx.fillStyle = '#000';
-                deck.ctx.fillRect(0, 0, deck.canvas.width, deck.canvas.height);
-                
-                // Draw YouTube thumbnail if loaded
-                if (deck.youtubeThumbnailLoaded && deck.youtubeThumbnail) {
-                    const aspectRatio = deck.youtubeThumbnail.width / deck.youtubeThumbnail.height;
-                    const canvasAspectRatio = deck.canvas.width / deck.canvas.height;
-                    
-                    let drawWidth, drawHeight, drawX, drawY;
-                    
-                    if (aspectRatio > canvasAspectRatio) {
-                        drawWidth = deck.canvas.width;
-                        drawHeight = deck.canvas.width / aspectRatio;
-                        drawX = 0;
-                        drawY = (deck.canvas.height - drawHeight) / 2;
-                    } else {
-                        drawWidth = deck.canvas.height * aspectRatio;
-                        drawHeight = deck.canvas.height;
-                        drawX = (deck.canvas.width - drawWidth) / 2;
-                        drawY = 0;
-                    }
-                    
-                    let effectiveFlip = (deck.video.flipState ^ holdingFlip) ^ (deck.video.flipInvertState ^ holdingFlipInvert);
-                    let effectiveInvert = (deck.video.flipInvertState ^ holdingFlipInvert) ^ (deck.video.invertState ^ holdingInvert);
-                    
-                    if (effectiveFlip) {
-                        deck.ctx.scale(-1, 1);
-                        deck.ctx.drawImage(deck.youtubeThumbnail, -drawX - drawWidth, drawY, drawWidth, drawHeight);
-                    } else {
-                        deck.ctx.drawImage(deck.youtubeThumbnail, drawX, drawY, drawWidth, drawHeight);
-                    }
-                    
-                    if (effectiveInvert) {
-                        deck.ctx.globalCompositeOperation = 'difference';
-                        deck.ctx.fillStyle = 'white';
-                        deck.ctx.fillRect(0, 0, deck.canvas.width, deck.canvas.height);
-                        deck.ctx.globalCompositeOperation = 'source-over';
-                    }
-                    
-                    // Draw YouTube logo overlay
-                    deck.ctx.fillStyle = 'rgba(255, 0, 0, 0.8)';
-                    deck.ctx.fillRect(deck.canvas.width - 80, 10, 70, 30);
-                    deck.ctx.fillStyle = '#fff';
-                    deck.ctx.font = '14px Arial';
-                    deck.ctx.textAlign = 'center';
-                    deck.ctx.fillText('YouTube', deck.canvas.width - 45, 30);
-                    
-                } else {
-                    // Fallback placeholder
-                    deck.ctx.fillStyle = '#ff0000';
-                    deck.ctx.fillRect(deck.canvas.width/2 - 50, deck.canvas.height/2 - 25, 100, 50);
-                    
-                    // Draw play button triangle
-                    deck.ctx.fillStyle = '#fff';
-                    deck.ctx.beginPath();
-                    deck.ctx.moveTo(deck.canvas.width/2 - 10, deck.canvas.height/2 - 10);
-                    deck.ctx.lineTo(deck.canvas.width/2 + 10, deck.canvas.height/2);
-                    deck.ctx.lineTo(deck.canvas.width/2 - 10, deck.canvas.height/2 + 10);
-                    deck.ctx.closePath();
-                    deck.ctx.fill();
-                    
-                    // Add text
-                    deck.ctx.fillStyle = '#fff';
-                    deck.ctx.font = '16px Arial';
-                    deck.ctx.textAlign = 'center';
-                    deck.ctx.fillText('YouTube Video', deck.canvas.width/2, deck.canvas.height/2 + 40);
-                    deck.ctx.fillText(`ID: ${deck.currentYouTubeVideoId}`, deck.canvas.width/2, deck.canvas.height/2 + 60);
                 }
                 
                 deck.ctx.restore();
