@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <title>Hydra Mobile - VJ Mix</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="./css/reset.css">
+    <link rel="stylesheet" href="./css/mobile.css">
+</head>
+<body>
+    <div id="hydra-mobile">
+        <!-- Pantalla principal fullscreen -->
+        <section id="main-screen">
+            <canvas id="mobile-output-canvas"></canvas>
+            <div id="screen-overlay" class="hide">
+                <div class="effect-info">
+                    <span id="current-effect">Butterchurn</span>
+                    <span id="current-preset">Loading...</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Panel de controles colapsable -->
+        <div id="controls-toggle">
+            <button id="expand-controls">⚙️</button>
+        </div>
+
+        <section id="mobile-controls" class="collapsed">
+            <!-- Deck A: Butterchurn -->
+            <div class="deck-controller butterchurn-deck">
+                <div class="deck-header">
+                    <h3>🎵 Butterchurn</h3>
+                    <div class="deck-status">
+                        <span class="audio-status">🔇 No Audio</span>
+                        <button id="butterchurn-enable" class="deck-toggle">OFF</button>
+                    </div>
+                </div>
+                
+                <div class="deck-controls">
+                    <!-- Preset selector simplificado -->
+                    <div class="preset-selector">
+                        <button id="prev-preset" class="preset-nav">◀</button>
+                        <select id="butterchurn-presets">
+                            <option>Loading presets...</option>
+                        </select>
+                        <button id="next-preset" class="preset-nav">▶</button>
+                    </div>
+                    
+                    <!-- Controls rápidos -->
+                    <div class="quick-controls">
+                        <button id="favorite-preset" class="quick-btn" title="Add/Remove Favorite">🤍</button>
+                        <button id="preset-mode" class="quick-btn" title="Toggle Favorites/All">❤️</button>
+                        <button id="random-preset" class="quick-btn" title="Random Preset">🎲</button>
+                        <button id="auto-mode" class="quick-btn" title="Auto Mode">⏯️</button>
+                        <button id="manage-presets" class="quick-btn" title="Manage Presets">⚙️</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Crossfader Central -->
+            <div class="crossfader-zone">
+                <div class="crossfader-container">
+                    <input type="range" id="main-crossfader" min="0" max="100" value="50" 
+                           class="crossfader-vertical" />
+                    <div class="crossfader-labels">
+                        <span>Music</span>
+                        <span>Video</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Deck B: Video -->
+            <div class="deck-controller video-deck">
+                <div class="deck-header">
+                    <h3>🎬 Video</h3>
+                    <div class="deck-status">
+                        <span class="video-status">No video</span>
+                        <button id="video-enable" class="deck-toggle">OFF</button>
+                    </div>
+                </div>
+                
+                <div class="deck-controls">
+                    <!-- Video slots simplificados -->
+                    <div class="video-slots">
+                        <button class="video-slot" data-slot="1">
+                            <div class="slot-preview"></div>
+                            <span>Slot 1</span>
+                        </button>
+                        <button class="video-slot" data-slot="2">
+                            <div class="slot-preview"></div>
+                            <span>Slot 2</span>
+                        </button>
+                        <button class="video-slot" data-slot="3">
+                            <div class="slot-preview"></div>
+                            <span>Slot 3</span>
+                        </button>
+                    </div>
+                    
+                    <!-- Video controls -->
+                    <div class="video-controls">
+                        <input type="file" id="video-upload" accept="video/*,image/gif" class="hidden" />
+                        <button id="upload-video" class="control-btn">📁</button>
+                        <button id="video-effects" class="control-btn">✨</button>
+                        <input type="range" id="video-speed" min="0.25" max="3" value="1" step="0.25" 
+                               class="speed-control" title="Video Speed" />
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Panel de efectos rápidos -->
+        <section id="effects-panel" class="hide">
+            <div class="effects-header">
+                <h4>Video Effects</h4>
+                <button id="close-effects">✕</button>
+            </div>
+            <div class="effects-grid">
+                <button class="effect-btn" data-effect="invert">Invert</button>
+                <button class="effect-btn" data-effect="flip">Flip</button>
+                <button class="effect-btn" data-effect="reverse">Reverse</button>
+                <button class="effect-btn" data-effect="speed">2x Speed</button>
+            </div>
+        </section>
+
+        <!-- Overlay de configuración -->
+        <section id="setup-modal" class="modal hide">
+            <div class="modal-content">
+                <h3>🎵 Hydra Mobile Setup</h3>
+                <div class="setup-options">
+                    <div class="option">
+                        <label>📁 Upload Video/GIF:</label>
+                        <input type="file" id="quick-upload" accept="video/*,image/gif" />
+                    </div>
+                    <div class="option">
+                        <label>🌐 Direct URL:</label>
+                        <input type="url" id="direct-url" placeholder="https://example.com/video.mp4" />
+                        <button id="load-url">Load</button>
+                    </div>
+                    <div class="option">
+                        <label>🎤 Audio Input:</label>
+                        <button id="enable-mic">Enable Microphone</button>
+                    </div>
+                    <div class="option">
+                        <label>🔍 Debug:</label>
+                        <button id="debug-info">Show Debug Info</button>
+                    </div>
+                </div>
+                <button id="close-setup">🚀 Start Mixing</button>
+            </div>
+        </section>
+
+        <!-- Preset Manager Modal -->
+        <section id="preset-manager-modal" class="modal hide">
+            <div class="modal-content preset-manager-content">
+                <div class="preset-manager-header">
+                    <h3>🎵 Preset Manager</h3>
+                    <button id="close-preset-manager" class="modal-close">✕</button>
+                </div>
+                
+                <div class="preset-manager-info">
+                    <p>Choose your favorite Butterchurn presets for quick access during performances.</p>
+                    <div class="preset-stats">
+                        <span id="favorites-count">10 favorites</span> • 
+                        <span id="total-count">200+ total presets</span>
+                    </div>
+                </div>
+                
+                <div class="preset-manager-actions">
+                    <button id="reset-favorites" class="action-btn">🔄 Reset to Defaults</button>
+                </div>
+                
+                <div id="preset-manager-list" class="preset-list">
+                    <!-- Preset groups will be populated here -->
+                </div>
+            </div>
+        </section>
+
+        <!-- Loading overlay -->
+        <div id="loading-overlay">
+            <div class="loading-content">
+                <div class="spinner"></div>
+                <p>Loading Hydra Mobile...</p>
+            </div>
+        </div>
+    </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="./js/vendor/lodash-full-4.17.15.js"></script>
+    <script src="./js/vendor/butterchurn.js"></script>
+    <script src="./js/vendor/butterchurnPresets.min.js"></script>
+    <script src="./js/vendor/butterchurnPresetsExtra.min.js"></script>
+    <script src="./js/vendor/gif-parser.js"></script>
+    <script src="./js/mobile-hydra.js"></script>
+</body>
+</html>
