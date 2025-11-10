@@ -148,6 +148,7 @@ class HydraController {
                 break;
 
             case 'preset_list':
+                console.log('📨 Received preset_list:', message.presets.length, 'presets');
                 this.state.butterchurn.availablePresets = message.presets;
                 this.state.butterchurn.totalPresets = message.presets.length;
                 this.populatePresetSelector();
@@ -318,10 +319,11 @@ class HydraController {
     }
 
     loadPresetByName(presetName) {
+        console.log('📤 Sending load_by_name preset command:', presetName);
         this.send({
             type: 'preset',
             action: 'load_by_name',
-            presetName: presetName
+            presetName: presetName.trim()
         });
     }
 

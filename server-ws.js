@@ -162,6 +162,11 @@ function handleMessage(clientId, message) {
             broadcastToControls(message);
             break;
 
+        case 'preset_list': // New case for preset_list
+            // Forward preset list to controls
+            broadcastToControls(message);
+            break;
+
         default:
             console.warn(`⚠️  Unknown message type: ${message.type}`);
     }

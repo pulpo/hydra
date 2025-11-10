@@ -236,18 +236,24 @@ class MobileHydra {
             const extraPresets = typeof butterchurnPresetsExtra !== 'undefined' ? butterchurnPresetsExtra.getPresets() : {};
             
             this.allPresets = Object.assign({}, basePresets, extraPresets);
-            
+
             console.log(`Loaded ${Object.keys(this.allPresets).length} total presets`);
-            
+            console.log('All presets content (before assigning to this.presets):', this.allPresets);
+
+            // Ensure all presets are available for remote loading
+            this.presets = this.allPresets;
+            console.log('DEBUG: mobile-hydra.js - this.presets after assignment:', Object.keys(this.presets).length, 'presets');
+
             // Load favorites from localStorage or use defaults
             this.loadFavoritePresets();
 
             // Load saved scenes
             this.loadScenesFromStorage();
-            
-            // Initialize with favorites
+
+            // Initialize with favorites (for local navigation)
             this.updatePresetList();
-            
+            console.log('Preset keys after updatePresetList (local navigation):', this.presetKeys);
+
             // Load first favorite preset with delay to ensure butterchurn is ready
             setTimeout(() => {
                 if (this.presetKeys.length > 0) {
@@ -294,18 +300,12 @@ class MobileHydra {
     
     updatePresetList() {
         if (this.showingFavorites) {
-            this.presets = {};
-            this.favoritePresets.forEach(name => {
-                if (this.allPresets[name]) {
-                    this.presets[name] = this.allPresets[name];
-                }
-            });
+            // Only update presetKeys for local navigation
             this.presetKeys = this.favoritePresets.filter(name => this.allPresets[name]);
         } else {
-            this.presets = this.allPresets;
             this.presetKeys = Object.keys(this.allPresets).sort();
         }
-        
+
         this.currentPresetIndex = 0;
         this.populatePresetSelector();
     }
@@ -341,9 +341,13 @@ class MobileHydra {
     }
     
     loadPreset(presetName, blendTime = 2.0) {
-        if (this.butterchurnRenderer && this.presets[presetName]) {
+        const trimmedPresetName = presetName.trim();
+        console.log('DEBUG: mobile-hydra.js - Attempting to load preset (trimmed):', trimmedPresetName);
+        console.log('DEBUG: mobile-hydra.js - this.presets[trimmedPresetName]:', this.presets[trimmedPresetName]);
+        console.log('DEBUG: mobile-hydra.js - All available preset keys:', Object.keys(this.presets));
+        if (this.butterchurnRenderer && this.presets[trimmedPresetName]) {
             try {
-                console.log('Loading preset:', presetName);
+                console.log('Loading preset:', trimmedPresetName);
                 this.butterchurnRenderer.loadPreset(this.presets[presetName], blendTime);
                 document.getElementById('butterchurn-presets').value = presetName;
                 document.getElementById('current-preset').textContent = this.shortenPresetName(presetName);
@@ -1229,9 +1233,11 @@ class MobileHydra {
             });
 
             // Send available presets to the controller
+            console.log('DEBUG: mobile-hydra.js - this.allPresets keys before sending:', Object.keys(this.allPresets).length);
+            console.log('DEBUG: mobile-hydra.js - this.presetKeys before sending (should be favorites):', this.presetKeys.length);
             this.sendToController({
                 type: 'preset_list',
-                presets: this.presetKeys
+                presets: Object.keys(this.allPresets) // Always send all presets to controller
             });
         };
         
@@ -1350,7 +1356,7 @@ class MobileHydra {
 
             case 'load_by_name':
                 if (message.presetName) {
-                    this.loadPreset(message.presetName);
+                    this.loadPreset(message.presetName.trim());
                 }
                 break;
         }
