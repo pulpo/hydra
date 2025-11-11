@@ -153,6 +153,7 @@ function handleMessage(clientId, message) {
         case MessageTypes.EFFECT:
         case MessageTypes.EMERGENCY:
         case MessageTypes.SCENE:
+        case 'mic_sensitivity': // New case for mic_sensitivity
             // Forward control messages to displays
             broadcastToDisplays(message);
             break;

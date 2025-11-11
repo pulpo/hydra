@@ -62,6 +62,10 @@ class MobileHydra {
         // Scene management
         this.scenes = {};
         this.currentScene = null;
+
+        // Microphone sensitivity
+        this.micSensitivity = 1.0; // Default to 1 (no change)
+        this.micGainNode = null;
         
         this.init();
     }
@@ -1094,9 +1098,20 @@ class MobileHydra {
             
             this.audioSource = this.audioContext.createMediaStreamSource(stream);
             
+            // Create a GainNode for microphone sensitivity control
+            this.micGainNode = this.audioContext.createGain();
+            this.micGainNode.gain.value = this.micSensitivity;
+            this.audioSource.connect(this.micGainNode);
+
             if (this.butterchurnRenderer) {
-                this.butterchurnRenderer.connectAudio(this.audioSource);
-                console.log('Microphone connected to butterchurn');
+                // Disconnect silent oscillator if it was connected
+                if (this.silentGain) {
+                    this.silentGain.disconnect(this.audioContext.destination);
+                    this.silentOscillator.stop();
+                    this.silentOscillator = null;
+                }
+                this.butterchurnRenderer.connectAudio(this.micGainNode);
+                console.log('Microphone connected to butterchurn via GainNode');
             }
             
             document.querySelector('.audio-status').textContent = '🎤 Live';
@@ -1313,6 +1328,10 @@ class MobileHydra {
                 // Respond to heartbeat
                 this.sendToController({ type: 'heartbeat' });
                 break;
+
+            case 'mic_sensitivity':
+                this.handleMicSensitivity(message);
+                break;
         }
     }
     
@@ -1321,6 +1340,29 @@ class MobileHydra {
             this.crossfaderValue = message.value;
             document.getElementById('main-crossfader').value = this.crossfaderValue;
             this.updateMixRatio();
+        }
+    }
+
+    handleMicSensitivity(message) {
+        if (message.value !== undefined) {
+            this.setMicrophoneSensitivity(message.value);
+        }
+    }
+
+    setMicrophoneSensitivity(value) {
+        this.micSensitivity = parseFloat(value);
+        if (this.micGainNode) {
+            this.micGainNode.gain.value = this.micSensitivity;
+            console.log('🎤 Microphone sensitivity set to:', this.micSensitivity);
+        }
+        // Update UI if there's a local control for it (e.g., in setup modal)
+        const slider = document.getElementById('mic-sensitivity-slider');
+        if (slider) {
+            slider.value = this.micSensitivity;
+        }
+        const display = document.getElementById('mic-sensitivity-display');
+        if (display) {
+            display.textContent = `${(this.micSensitivity * 100).toFixed(0)}%`;
         }
     }
     

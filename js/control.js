@@ -44,6 +44,9 @@ class HydraController {
                 lastTap: 0,
                 taps: []
             },
+            audio: {
+                micSensitivity: 1.0
+            },
             scenes: {}
         };
         
@@ -264,6 +267,11 @@ class HydraController {
         
         document.getElementById('bpm-sync-enable').addEventListener('change', (e) => {
             this.toggleBPMSync(e.target.checked);
+        });
+
+        // Microphone sensitivity control
+        document.getElementById('mic-sensitivity-slider').addEventListener('input', (e) => {
+            this.setMicrophoneSensitivity(parseFloat(e.target.value));
         });
         
         // Video controls
@@ -647,9 +655,26 @@ class HydraController {
                 type: 'scene',
                 action: 'load',
                 scene: sceneNum,
-                state: this.state
-            });
-        }
+            state: this.state
+        });
+    }
+
+    setMicrophoneSensitivity(value) {
+        this.state.audio.micSensitivity = value;
+        this.updateUI();
+
+        this.send({
+            type: 'mic_sensitivity',
+            value: value
+        });
+    }
+    
+    toggleFullscreen() {
+        this.send({
+            type: 'config',
+            action: 'fullscreen'
+        });
+    }
     }
     
     toggleFullscreen() {
@@ -666,10 +691,16 @@ class HydraController {
         this.updateVideoControls();
         this.updateBPMDisplay();
         this.updateQuickActions();
+        this.updateAudioControls();
     }
-    
+
     updateCrossfader() {
         document.getElementById('crossfader-display').textContent = `${this.state.master.crossfader}%`;
+    }
+
+    updateAudioControls() {
+        document.getElementById('mic-sensitivity-slider').value = this.state.audio.micSensitivity;
+        document.getElementById('mic-sensitivity-display').textContent = `${(this.state.audio.micSensitivity * 100).toFixed(0)}%`;
     }
     
     updatePresetDisplay() {
