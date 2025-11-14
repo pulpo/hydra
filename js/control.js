@@ -65,10 +65,14 @@ class HydraController {
         const host = window.location.hostname;
         const wsUrl = `${protocol}//${host}:3030`;
         
-        console.log('🔗 Connecting to:', wsUrl);
+        console.log('🔗 Attempting to connect to WebSocket server...');
+        console.log('🔗 URL:', wsUrl);
+        console.log('🔗 Protocol:', protocol);
+        console.log('🔗 Host:', host);
         
         try {
             this.ws = new WebSocket(wsUrl);
+            console.log('🔗 WebSocket object created');
             this.setupWebSocketHandlers();
         } catch (error) {
             console.error('❌ Connection failed:', error);
@@ -90,6 +94,8 @@ class HydraController {
                 clientType: 'control',
                 clientName: `Control Panel ${new Date().toLocaleTimeString()}`
             });
+            
+            console.log('🎛️ Registered as control panel');
         };
         
         this.ws.onmessage = (event) => {
@@ -143,7 +149,7 @@ class HydraController {
     }
     
     handleMessage(message) {
-        console.log('📨 Received:', message.type);
+        console.log('📨 Received:', message.type, message);
         
         switch (message.type) {
             case 'status':
@@ -169,21 +175,39 @@ class HydraController {
     }
     
     handleStatusUpdate(message) {
+        console.log('📊 Status update received:', message);
+        
         if (message.action === 'client_registered' || message.action === 'client_disconnected') {
+            console.log('Client count update:', {
+                displays: message.displayClients,
+                controls: message.controlClients
+            });
             this.updateClientCounts(message);
         }
         
+        // Also check for serverInfo in case it's nested
         if (message.serverInfo) {
             this.updateClientCounts(message.serverInfo);
         }
     }
     
     updateClientCounts(info) {
+        console.log('Updating client counts:', info);
         if (info.displayClients !== undefined) {
-            document.getElementById('connected-displays').textContent = `📺 Displays: ${info.displayClients}`;
+            const displayElement = document.getElementById('connected-displays');
+            console.log('Display element found:', !!displayElement);
+            if (displayElement) {
+                displayElement.textContent = `📺 Displays: ${info.displayClients}`;
+                console.log('Updated display count to:', info.displayClients);
+            }
         }
         if (info.controlClients !== undefined) {
-            document.getElementById('connected-controls').textContent = `🎛️ Controls: ${info.controlClients}`;
+            const controlElement = document.getElementById('connected-controls');
+            console.log('Control element found:', !!controlElement);
+            if (controlElement) {
+                controlElement.textContent = `🎛️ Controls: ${info.controlClients}`;
+                console.log('Updated control count to:', info.controlClients);
+            }
         }
     }
     
@@ -655,8 +679,9 @@ class HydraController {
                 type: 'scene',
                 action: 'load',
                 scene: sceneNum,
-            state: this.state
-        });
+                state: this.state
+            });
+        }
     }
 
     setMicrophoneSensitivity(value) {
@@ -667,14 +692,6 @@ class HydraController {
             type: 'mic_sensitivity',
             value: value
         });
-    }
-    
-    toggleFullscreen() {
-        this.send({
-            type: 'config',
-            action: 'fullscreen'
-        });
-    }
     }
     
     toggleFullscreen() {

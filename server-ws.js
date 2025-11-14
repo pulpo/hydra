@@ -68,9 +68,10 @@ wss.on('connection', (ws, req) => {
     
     clients.set(clientId, clientInfo);
     console.log(`📱 Client connected: ${clientId} from ${clientInfo.ip}`);
+    console.log(`📊 Current counts - Total: ${clients.size}, Displays: ${displayClients.size}, Controls: ${controlClients.size}`);
     
     // Send welcome message
-    ws.send(JSON.stringify({
+    const welcomeMessage = {
         type: MessageTypes.STATUS,
         status: 'connected',
         clientId: clientId,
@@ -80,7 +81,9 @@ wss.on('connection', (ws, req) => {
             displayClients: displayClients.size,
             controlClients: controlClients.size
         }
-    }));
+    };
+    console.log(`📤 Sending welcome message to ${clientId}:`, welcomeMessage);
+    ws.send(JSON.stringify(welcomeMessage));
 
     // Message handler
     ws.on('message', (data) => {
@@ -190,7 +193,7 @@ function handleClientRegistration(clientId, message) {
     }
 
     // Send updated client list to control panels
-    broadcastToControls({
+    const updateMessage = {
         type: MessageTypes.STATUS,
         action: 'client_registered',
         clientId: clientId,
@@ -199,7 +202,9 @@ function handleClientRegistration(clientId, message) {
         connectedClients: clients.size,
         displayClients: displayClients.size,
         controlClients: controlClients.size
-    });
+    };
+    console.log('📤 Broadcasting client update to controls:', updateMessage);
+    broadcastToControls(updateMessage);
 
     // Send current state to new display clients
     if (message.clientType === 'display') {
