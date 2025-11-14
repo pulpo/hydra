@@ -161,10 +161,13 @@ class MobileHydra {
     async setupAudio() {
         try {
             // Create audio context but don't start microphone yet
+            // Don't specify sampleRate to let it match the system default
+            // This prevents sample rate mismatch errors when connecting microphone
             this.audioContext = new (window.AudioContext || window.webkitAudioContext)({
-                latencyHint: 'interactive',
-                sampleRate: 44100
+                latencyHint: 'interactive'
             });
+            
+            console.log('Audio context created with sample rate:', this.audioContext.sampleRate);
             
             // Create a silent audio source for butterchurn (some presets need audio data)
             this.createSilentAudioSource();
@@ -1078,9 +1081,20 @@ class MobileHydra {
     
     async requestMicrophone() {
         try {
+            // First, ensure audio context is running
             if (this.audioContext.state === 'suspended') {
-                await this.audioContext.resume();
+                console.log('Resuming audio context...');
+                try {
+                    await this.audioContext.resume();
+                    console.log('Audio context resumed successfully');
+                } catch (resumeError) {
+                    console.error('Failed to resume audio context:', resumeError);
+                    throw new Error('Could not resume audio context');
+                }
             }
+            
+            console.log('Requesting microphone access...');
+            console.log('Audio context sample rate:', this.audioContext.sampleRate);
             
             const stream = await navigator.mediaDevices.getUserMedia({ 
                 audio: {
@@ -1090,40 +1104,78 @@ class MobileHydra {
                 } 
             });
             
+            console.log('Microphone access granted, stream obtained:', stream);
+            
             // Stop silent oscillator if it exists
             if (this.silentOscillator) {
-                this.silentOscillator.stop();
+                try {
+                    this.silentOscillator.stop();
+                    console.log('Silent oscillator stopped');
+                } catch (e) {
+                    console.warn('Could not stop silent oscillator:', e);
+                }
                 this.silentOscillator = null;
             }
             
+            // Create media stream source
+            console.log('Creating media stream source...');
             this.audioSource = this.audioContext.createMediaStreamSource(stream);
             
             // Create a GainNode for microphone sensitivity control
             this.micGainNode = this.audioContext.createGain();
             this.micGainNode.gain.value = this.micSensitivity;
             this.audioSource.connect(this.micGainNode);
+            console.log('Audio source connected to gain node');
 
             if (this.butterchurnRenderer) {
                 // Disconnect silent oscillator if it was connected
                 if (this.silentGain) {
-                    this.silentGain.disconnect(this.audioContext.destination);
-                    this.silentOscillator.stop();
-                    this.silentOscillator = null;
+                    try {
+                        this.silentGain.disconnect(this.audioContext.destination);
+                        console.log('Silent gain disconnected');
+                    } catch (e) {
+                        console.warn('Could not disconnect silent gain:', e);
+                    }
                 }
-                this.butterchurnRenderer.connectAudio(this.micGainNode);
-                console.log('Microphone connected to butterchurn via GainNode');
+                
+                console.log('Connecting microphone to butterchurn...');
+                try {
+                    this.butterchurnRenderer.connectAudio(this.micGainNode);
+                    console.log('Microphone connected to butterchurn via GainNode');
+                } catch (connectError) {
+                    console.error('Failed to connect audio to butterchurn:', connectError);
+                    // Try to continue anyway - the connection might still work
+                }
+            } else {
+                console.warn('Butterchurn renderer not available for audio connection');
             }
             
             document.querySelector('.audio-status').textContent = '🎤 Live';
             document.getElementById('enable-mic').textContent = '✅ Microphone Enabled';
             document.getElementById('enable-mic').disabled = true;
             
-            console.log('Microphone connected successfully');
+            console.log('Microphone setup completed successfully');
             
         } catch (error) {
-            console.error('Microphone access denied:', error);
-            document.querySelector('.audio-status').textContent = '🔇 Denied';
-            alert('Microphone access denied. Using silent audio source for visual effects.');
+            console.error('Microphone access error:', error);
+            console.error('Error name:', error.name);
+            console.error('Error message:', error.message);
+            
+            // Provide more specific error messages
+            let errorMessage = 'Microphone access failed. Using silent audio source for visual effects.';
+            
+            if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+                errorMessage = 'Microphone permission denied. Please allow microphone access in your browser settings.';
+            } else if (error.name === 'NotFoundError') {
+                errorMessage = 'No microphone found on your device.';
+            } else if (error.name === 'NotReadableError') {
+                errorMessage = 'Microphone is already in use by another application.';
+            } else if (error.message.includes('audio context')) {
+                errorMessage = 'Audio system error. Please refresh the page and try again.';
+            }
+            
+            document.querySelector('.audio-status').textContent = '🔇 Error';
+            alert(errorMessage);
         }
     }
     
