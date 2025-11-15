@@ -258,12 +258,35 @@ setInterval(() => {
     const timeoutThreshold = config.heartbeatInterval * 2;
     
     clients.forEach((client, clientId) => {
+        // Check if client has timed out
         if (now - client.lastHeartbeat > timeoutThreshold) {
             console.log(`💔 Client ${clientId} timed out`);
             client.ws.terminate();
             clients.delete(clientId);
             displayClients.delete(clientId);
             controlClients.delete(clientId);
+            
+            // Notify other clients about disconnection
+            broadcastToControls({
+                type: MessageTypes.STATUS,
+                action: 'client_disconnected',
+                clientId: clientId,
+                connectedClients: clients.size,
+                displayClients: displayClients.size,
+                controlClients: controlClients.size
+            });
+        } else {
+            // Send heartbeat ping to active clients
+            if (client.ws.readyState === WebSocket.OPEN) {
+                try {
+                    client.ws.send(JSON.stringify({
+                        type: MessageTypes.HEARTBEAT,
+                        timestamp: now
+                    }));
+                } catch (error) {
+                    console.error(`❌ Failed to send heartbeat to ${clientId}:`, error);
+                }
+            }
         }
     });
 }, config.heartbeatInterval);
