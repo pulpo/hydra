@@ -45,9 +45,9 @@ class MobileHydra {
         // Video slots (6 slots)
         this.videoSlots = [null, null, null, null, null, null];
         
-        // GIF support
-        this.gifPlayer = null;
-        this.gifImageEl = null;
+        // GIF support - one player per slot
+        this.gifPlayers = [null, null, null, null, null, null];
+        this.gifImageElements = [null, null, null, null, null, null];
         this.gifImageLoaded = false;
         
         // Remote control
@@ -887,6 +887,12 @@ class MobileHydra {
         // Create thumbnail
         this.createThumbnail(slotIndex, url, isGif);
         
+        // Pre-load GIF in background for instant playback later
+        if (isGif) {
+            console.log('🔄 Pre-loading GIF for slot', slotIndex);
+            this.loadGif(url, slotIndex);
+        }
+        
         // Send slot info to controller
         this.sendToController({
             type: 'video_slot_update',
@@ -946,24 +952,33 @@ class MobileHydra {
             slot.classList.toggle('active', i === slotIndex);
         });
         
-        // Load video
-        const videoData = this.videoSlots[slotIndex];
-        console.log('📹 Loading from slot:', slotIndex, 'URL:', videoData.url, 'isGif:', videoData.isGif);
-        
-        if (videoData.isGif) {
-            // Handle GIF with gif-parser if available
-            if (typeof GIFParser !== 'undefined') {
-                this.loadGif(videoData.url);
-            } else {
-                // Fallback: treat as video
-                this.loadVideo(videoData.url);
-            }
-        } else {
-            this.loadVideo(videoData.url);
-        }
-        
+        // Set current video
         this.currentVideo = slotIndex;
         this.videoActive = true;
+        
+        const videoData = this.videoSlots[slotIndex];
+        console.log('📹 Switching to slot:', slotIndex, 'URL:', videoData.url, 'isGif:', videoData.isGif);
+        
+        if (videoData.isGif) {
+            // Check if GIF is already loaded in this slot
+            if (this.gifPlayers[slotIndex] || this.gifImageElements[slotIndex]) {
+                console.log('✅ GIF already loaded in slot', slotIndex, '- instant switch!');
+                this.gifImageLoaded = true;
+                
+                // Stop video playback
+                this.videoElement.pause();
+                this.videoElement.src = '';
+            } else {
+                // GIF not loaded yet, load it now
+                console.log('⏳ GIF not preloaded, loading now...');
+                this.gifImageLoaded = false;
+                this.loadGif(videoData.url, slotIndex);
+            }
+        } else {
+            // Regular video
+            this.gifImageLoaded = false;
+            this.loadVideo(videoData.url);
+        }
         
         // Update status
         this.updateVideoStatus('▶ Playing');
@@ -983,10 +998,10 @@ class MobileHydra {
         this.gifImageLoaded = false;
     }
     
-    loadGif(url) {
-        console.log('🎨 Loading GIF:', url);
+    loadGif(url, slotIndex) {
+        console.log('🎨 Loading GIF into slot', slotIndex, ':', url);
         
-        // Stop video playback
+        // Stop video playback when switching to GIF
         this.videoElement.pause();
         this.videoElement.src = '';
         
@@ -994,39 +1009,50 @@ class MobileHydra {
         const parser = new GIFParser();
         parser.parseFromURL(url)
             .then(gifData => {
-                console.log(`✅ GIF parsed successfully: ${gifData.frames.length} frames`);
-                this.gifPlayer = new GIFPlayer(gifData);
-                this.gifPlayer.play();
-                this.gifImageLoaded = true;
-                console.log('✅ gifImageLoaded set to:', this.gifImageLoaded);
-                console.log('✅ gifPlayer created:', !!this.gifPlayer);
-                this.updateVideoStatus('▶ Playing GIF');
-            })
-            .catch(error => {
-                console.warn('⚠️ GIF parser failed, using fallback:', error);
+                console.log(`✅ GIF parsed successfully for slot ${slotIndex}: ${gifData.frames.length} frames`);
                 
-                // Fallback: Use native img element
-                if (!this.gifImageEl) {
-                    this.gifImageEl = document.createElement('img');
-                    this.gifImageEl.style.display = 'none';
-                    document.body.appendChild(this.gifImageEl);
+                // Store the player in the slot
+                this.gifPlayers[slotIndex] = new GIFPlayer(gifData);
+                this.gifPlayers[slotIndex].play();
+                
+                // If this is the currently active slot, mark as loaded
+                if (this.currentVideo === slotIndex) {
+                    this.gifImageLoaded = true;
+                    this.updateVideoStatus('▶ Playing GIF');
                 }
                 
-                this.gifImageEl.onload = () => {
-                    this.gifImageLoaded = true;
-                    this.gifPlayer = null;
-                    console.log('✅ GIF loaded using native image');
-                    this.updateVideoStatus('▶ Playing GIF');
+                console.log('✅ GIF player stored in slot', slotIndex);
+            })
+            .catch(error => {
+                console.warn(`⚠️ GIF parser failed for slot ${slotIndex}, using fallback:`, error);
+                
+                // Fallback: Use native img element
+                if (!this.gifImageElements[slotIndex]) {
+                    this.gifImageElements[slotIndex] = document.createElement('img');
+                    this.gifImageElements[slotIndex].style.display = 'none';
+                    document.body.appendChild(this.gifImageElements[slotIndex]);
+                }
+                
+                this.gifImageElements[slotIndex].onload = () => {
+                    console.log(`✅ GIF loaded using native image for slot ${slotIndex}`);
+                    
+                    // If this is the currently active slot, mark as loaded
+                    if (this.currentVideo === slotIndex) {
+                        this.gifImageLoaded = true;
+                        this.updateVideoStatus('▶ Playing GIF');
+                    }
                 };
                 
-                this.gifImageEl.onerror = () => {
-                    console.error('❌ Failed to load GIF');
-                    this.updateVideoStatus('❌ GIF Error');
-                    this.gifImageLoaded = false;
+                this.gifImageElements[slotIndex].onerror = () => {
+                    console.error(`❌ Failed to load GIF for slot ${slotIndex}`);
+                    if (this.currentVideo === slotIndex) {
+                        this.updateVideoStatus('❌ GIF Error');
+                        this.gifImageLoaded = false;
+                    }
                 };
                 
-                this.gifImageEl.crossOrigin = 'anonymous';
-                this.gifImageEl.src = url;
+                this.gifImageElements[slotIndex].crossOrigin = 'anonymous';
+                this.gifImageElements[slotIndex].src = url;
             });
     }
     
@@ -1904,22 +1930,23 @@ class MobileHydra {
     }
 
     renderVideo() {
-        // Determine source: GIF player, GIF image, or video element
+        // Determine source: GIF player from current slot, or video element
         let sourceElement = null;
         let sourceWidth = 0;
         let sourceHeight = 0;
         
-        if (this.gifImageLoaded) {
-            if (this.gifPlayer && this.gifPlayer.getCurrentCanvas) {
+        if (this.gifImageLoaded && this.currentVideo !== null) {
+            // Use GIF from current slot
+            if (this.gifPlayers[this.currentVideo] && this.gifPlayers[this.currentVideo].getCurrentCanvas) {
                 // Use GIF player canvas
-                sourceElement = this.gifPlayer.getCurrentCanvas();
+                sourceElement = this.gifPlayers[this.currentVideo].getCurrentCanvas();
                 sourceWidth = sourceElement.width;
                 sourceHeight = sourceElement.height;
-            } else if (this.gifImageEl && this.gifImageEl.complete) {
+            } else if (this.gifImageElements[this.currentVideo] && this.gifImageElements[this.currentVideo].complete) {
                 // Use native image element
-                sourceElement = this.gifImageEl;
-                sourceWidth = this.gifImageEl.naturalWidth;
-                sourceHeight = this.gifImageEl.naturalHeight;
+                sourceElement = this.gifImageElements[this.currentVideo];
+                sourceWidth = this.gifImageElements[this.currentVideo].naturalWidth;
+                sourceHeight = this.gifImageElements[this.currentVideo].naturalHeight;
             }
         } else if (this.videoElement.videoWidth > 0) {
             // Use video element
