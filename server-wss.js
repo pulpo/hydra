@@ -225,6 +225,10 @@ function handleMessage(clientId, message) {
         case 'preset_list':
             broadcastToControls(message);
             break;
+        
+        case 'video_slot_update':
+            broadcastToControls(message);
+            break;
 
         default:
             console.warn(`⚠️  Unknown message type: ${message.type}`);

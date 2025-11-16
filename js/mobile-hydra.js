@@ -42,8 +42,8 @@ class MobileHydra {
             'Martin - Spastic Turtle'
         ];
         
-        // Video slots
-        this.videoSlots = [null, null, null];
+        // Video slots (6 slots)
+        this.videoSlots = [null, null, null, null, null, null];
         
         // GIF support
         this.gifPlayer = null;
@@ -490,8 +490,12 @@ class MobileHydra {
         });
         
         // Video slots
-        document.querySelectorAll('.video-slot').forEach((slot, index) => {
+        const videoSlots = document.querySelectorAll('.video-slot');
+        console.log('🎯 Setting up video slot listeners, found', videoSlots.length, 'slots');
+        videoSlots.forEach((slot, index) => {
+            console.log('  📌 Slot', index, 'data-slot:', slot.dataset.slot);
             slot.addEventListener('click', () => {
+                console.log('🖱️ Slot clicked:', index);
                 this.selectVideoSlot(index);
             });
         });
@@ -866,16 +870,31 @@ class MobileHydra {
     }
     
     loadVideoToSlot(slotIndex, url, name, isGif = false) {
+        console.log('💾 Saving to slot', slotIndex, ':', { url, name, isGif });
         this.videoSlots[slotIndex] = { url, name, isGif };
         
         // Update slot UI
         const slot = document.querySelectorAll('.video-slot')[slotIndex];
-        slot.classList.add('active');
+        if (!slot) {
+            console.error('❌ Slot element not found for index:', slotIndex);
+            return;
+        }
+        
+        slot.classList.add('loaded');
         const shortName = name.length > 8 ? name.substring(0, 8) + '...' : name;
         slot.querySelector('span').textContent = shortName;
         
         // Create thumbnail
         this.createThumbnail(slotIndex, url, isGif);
+        
+        // Send slot info to controller
+        this.sendToController({
+            type: 'video_slot_update',
+            slot: slotIndex,
+            url: url,
+            name: name,
+            isGif: isGif
+        });
         
         // Auto-select this slot
         this.selectVideoSlot(slotIndex);
@@ -886,30 +905,11 @@ class MobileHydra {
         const preview = slot.querySelector('.slot-preview');
         
         if (isGif) {
-            // For GIFs, try to show first frame
-            const img = new Image();
-            img.crossOrigin = 'anonymous';
-            img.onload = () => {
-                try {
-                    const canvas = document.createElement('canvas');
-                    const ctx = canvas.getContext('2d');
-                    canvas.width = 64;
-                    canvas.height = 36;
-                    ctx.drawImage(img, 0, 0, 64, 36);
-                    preview.style.backgroundImage = `url(${canvas.toDataURL()})`;
-                } catch (error) {
-                    console.warn('Could not create thumbnail (CORS):', error);
-                    // Fallback: just use the URL directly
-                    preview.style.backgroundImage = `url(${url})`;
-                    preview.style.backgroundSize = 'cover';
-                }
-            };
-            img.onerror = () => {
-                console.warn('Could not load thumbnail image');
-                preview.style.backgroundImage = `url(${url})`;
-                preview.style.backgroundSize = 'cover';
-            };
-            img.src = url;
+            // For GIFs, show the GIF directly as preview
+            preview.style.backgroundImage = `url(${url})`;
+            preview.style.backgroundSize = 'cover';
+            preview.style.backgroundPosition = 'center';
+            console.log('✅ Thumbnail set for GIF slot', slotIndex);
         } else {
             // For videos, create a quick thumbnail
             const video = document.createElement('video');
@@ -935,7 +935,11 @@ class MobileHydra {
     }
     
     selectVideoSlot(slotIndex) {
-        if (!this.videoSlots[slotIndex]) return;
+        console.log('🎬 Selecting video slot:', slotIndex, 'Data:', this.videoSlots[slotIndex]);
+        if (!this.videoSlots[slotIndex]) {
+            console.warn('⚠️ Slot', slotIndex, 'is empty');
+            return;
+        }
         
         // Update UI
         document.querySelectorAll('.video-slot').forEach((slot, i) => {
@@ -944,6 +948,7 @@ class MobileHydra {
         
         // Load video
         const videoData = this.videoSlots[slotIndex];
+        console.log('📹 Loading from slot:', slotIndex, 'URL:', videoData.url, 'isGif:', videoData.isGif);
         
         if (videoData.isGif) {
             // Handle GIF with gif-parser if available
@@ -1264,7 +1269,15 @@ class MobileHydra {
                 const isGif = url.toLowerCase().includes('.gif') || url.toLowerCase().includes('giphy');
                 const name = isGif ? 'GIF' : 'Video';
                 console.log('📝 Detected type:', name, 'isGif:', isGif);
-                this.loadVideoToSlot(1, url, name, isGif);
+                // Find first empty slot or use slot 0
+                let targetSlot = 0;
+                for (let i = 0; i < this.videoSlots.length; i++) {
+                    if (!this.videoSlots[i]) {
+                        targetSlot = i;
+                        break;
+                    }
+                }
+                this.loadVideoToSlot(targetSlot, url, name, isGif);
                 document.getElementById('effects-panel-url').value = '';
                 // Don't close effects panel, keep it open
             } catch (error) {
@@ -1574,11 +1587,19 @@ class MobileHydra {
                 break;
                 
             case 'select_slot':
-                this.selectVideoSlot(message.slot - 1); // Convert to 0-based index
+                this.selectVideoSlot(message.slot); // Already 0-based index
                 break;
                 
             case 'load_url':
-                this.loadVideoToSlot(1, message.url, 'Remote Video', message.url.toLowerCase().includes('.gif'));
+                // Find first empty slot
+                let targetSlot = 0;
+                for (let i = 0; i < this.videoSlots.length; i++) {
+                    if (!this.videoSlots[i]) {
+                        targetSlot = i;
+                        break;
+                    }
+                }
+                this.loadVideoToSlot(targetSlot, message.url, 'Remote Video', message.url.toLowerCase().includes('.gif'));
                 break;
         }
     }

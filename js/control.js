@@ -180,6 +180,11 @@ class HydraController {
                 this.populatePresetSelector();
                 this.updatePresetDisplay();
                 break;
+            
+            case 'video_slot_update':
+                console.log('📨 Received video_slot_update:', message);
+                this.updateVideoSlotPreview(message.slot, message.url, message.name);
+                break;
                 
             case 'heartbeat':
                 // Respond to heartbeat
@@ -631,14 +636,46 @@ class HydraController {
     }
     
     selectVideoSlot(slot) {
+        console.log('🎬 Control: Selecting video slot', slot);
         this.state.video.currentSlot = slot;
         this.updateVideoSlots();
         
-        this.send({
+        const message = {
             type: 'video',
             action: 'select_slot',
             slot: slot
-        });
+        };
+        console.log('📤 Sending message:', message);
+        this.send(message);
+    }
+    
+    updateVideoSlotPreview(slotIndex, url, name) {
+        console.log('🖼️ Updating preview for slot', slotIndex, ':', { url, name });
+        const slots = document.querySelectorAll('.video-slot');
+        const slot = slots[slotIndex];
+        
+        if (!slot) {
+            console.warn('⚠️ Slot not found:', slotIndex);
+            return;
+        }
+        
+        const preview = slot.querySelector('.slot-preview');
+        const label = slot.querySelector('.slot-label');
+        
+        if (preview) {
+            // Set the GIF/video URL as background
+            preview.style.backgroundImage = `url(${url})`;
+            preview.style.backgroundSize = 'cover';
+            preview.style.backgroundPosition = 'center';
+        }
+        
+        if (label) {
+            const shortName = name.length > 10 ? name.substring(0, 10) + '...' : name;
+            label.textContent = shortName;
+        }
+        
+        // Mark slot as loaded
+        slot.classList.add('loaded');
     }
     
     uploadVideoFile(file) {
