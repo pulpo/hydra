@@ -47,6 +47,7 @@ class MobileHydra {
         
         // GIF support
         this.gifPlayer = null;
+        this.gifImageEl = null;
         this.gifImageLoaded = false;
         
         // Remote control
@@ -519,6 +520,11 @@ class MobileHydra {
             this.loadVideoFromURL();
         });
         
+        // URL loader in effects panel
+        document.getElementById('effects-panel-load-url').addEventListener('click', () => {
+            this.loadVideoFromURLEffectsPanel();
+        });
+        
         document.getElementById('quick-upload').addEventListener('change', (e) => {
             this.handleVideoUpload(e);
             this.hideSetupModal();
@@ -882,13 +888,26 @@ class MobileHydra {
         if (isGif) {
             // For GIFs, try to show first frame
             const img = new Image();
+            img.crossOrigin = 'anonymous';
             img.onload = () => {
-                const canvas = document.createElement('canvas');
-                const ctx = canvas.getContext('2d');
-                canvas.width = 64;
-                canvas.height = 36;
-                ctx.drawImage(img, 0, 0, 64, 36);
-                preview.style.backgroundImage = `url(${canvas.toDataURL()})`;
+                try {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    canvas.width = 64;
+                    canvas.height = 36;
+                    ctx.drawImage(img, 0, 0, 64, 36);
+                    preview.style.backgroundImage = `url(${canvas.toDataURL()})`;
+                } catch (error) {
+                    console.warn('Could not create thumbnail (CORS):', error);
+                    // Fallback: just use the URL directly
+                    preview.style.backgroundImage = `url(${url})`;
+                    preview.style.backgroundSize = 'cover';
+                }
+            };
+            img.onerror = () => {
+                console.warn('Could not load thumbnail image');
+                preview.style.backgroundImage = `url(${url})`;
+                preview.style.backgroundSize = 'cover';
             };
             img.src = url;
         } else {
@@ -960,9 +979,50 @@ class MobileHydra {
     }
     
     loadGif(url) {
-        // Simple GIF loading - for now treat as video
-        // TODO: Implement proper GIF frame-by-frame rendering if needed
-        this.loadVideo(url);
+        console.log('🎨 Loading GIF:', url);
+        
+        // Stop video playback
+        this.videoElement.pause();
+        this.videoElement.src = '';
+        
+        // Try to use GIF parser for better control
+        const parser = new GIFParser();
+        parser.parseFromURL(url)
+            .then(gifData => {
+                console.log(`✅ GIF parsed successfully: ${gifData.frames.length} frames`);
+                this.gifPlayer = new GIFPlayer(gifData);
+                this.gifPlayer.play();
+                this.gifImageLoaded = true;
+                console.log('✅ gifImageLoaded set to:', this.gifImageLoaded);
+                console.log('✅ gifPlayer created:', !!this.gifPlayer);
+                this.updateVideoStatus('▶ Playing GIF');
+            })
+            .catch(error => {
+                console.warn('⚠️ GIF parser failed, using fallback:', error);
+                
+                // Fallback: Use native img element
+                if (!this.gifImageEl) {
+                    this.gifImageEl = document.createElement('img');
+                    this.gifImageEl.style.display = 'none';
+                    document.body.appendChild(this.gifImageEl);
+                }
+                
+                this.gifImageEl.onload = () => {
+                    this.gifImageLoaded = true;
+                    this.gifPlayer = null;
+                    console.log('✅ GIF loaded using native image');
+                    this.updateVideoStatus('▶ Playing GIF');
+                };
+                
+                this.gifImageEl.onerror = () => {
+                    console.error('❌ Failed to load GIF');
+                    this.updateVideoStatus('❌ GIF Error');
+                    this.gifImageLoaded = false;
+                };
+                
+                this.gifImageEl.crossOrigin = 'anonymous';
+                this.gifImageEl.src = url;
+            });
     }
     
     toggleVideoEffect(effect) {
@@ -1195,6 +1255,27 @@ class MobileHydra {
         }
     }
     
+    loadVideoFromURLEffectsPanel() {
+        const url = document.getElementById('effects-panel-url').value.trim();
+        console.log('🌐 Loading URL from effects panel:', url);
+        if (url) {
+            try {
+                new URL(url); // Validate URL
+                const isGif = url.toLowerCase().includes('.gif') || url.toLowerCase().includes('giphy');
+                const name = isGif ? 'GIF' : 'Video';
+                console.log('📝 Detected type:', name, 'isGif:', isGif);
+                this.loadVideoToSlot(1, url, name, isGif);
+                document.getElementById('effects-panel-url').value = '';
+                // Don't close effects panel, keep it open
+            } catch (error) {
+                console.error('❌ Invalid URL:', error);
+                alert('Please enter a valid URL');
+            }
+        } else {
+            alert('Please enter a URL');
+        }
+    }
+    
     updateMixRatio() {
         // Update visual indicator
         const ratio = this.crossfaderValue / 100;
@@ -1233,7 +1314,10 @@ class MobileHydra {
                     butterchurnActive: this.butterchurnActive,
                     hasRenderer: !!this.butterchurnRenderer,
                     videoActive: this.videoActive,
-                    hasVideo: this.videoElement && this.videoElement.videoWidth > 0,
+                    hasVideo: (this.videoElement && this.videoElement.videoWidth > 0) || this.gifImageLoaded,
+                    gifImageLoaded: this.gifImageLoaded,
+                    hasGifPlayer: !!this.gifPlayer,
+                    hasGifImageEl: !!this.gifImageEl,
                     crossfaderRatio: ratio
                 });
             }
@@ -1257,8 +1341,9 @@ class MobileHydra {
                 }
             }
 
-            // Render Video
-            if (this.videoActive && this.videoElement.videoWidth > 0 && ratio > 0) {
+            // Render Video or GIF
+            const hasVideoOrGif = (this.videoElement.videoWidth > 0) || this.gifImageLoaded;
+            if (this.videoActive && hasVideoOrGif && ratio > 0) {
                 this.ctx.globalAlpha = ratio;
                 this.renderVideo();
             }
@@ -1272,10 +1357,25 @@ class MobileHydra {
     // Remote Control Functions
     connectToRemoteControl() {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const host = window.location.hostname;
-        const wsUrl = `${protocol}//${host}:3030`;
+        
+        // Allow WebSocket server to be specified via URL parameter
+        // Otherwise, use the same host where the page was loaded from
+        const urlParams = new URLSearchParams(window.location.search);
+        let wsHost = urlParams.get('ws');
+        
+        if (!wsHost) {
+            // If accessed from the same server, use that server's IP
+            // This ensures remote clients connect back to the server, not to themselves
+            wsHost = window.location.host.split(':')[0]; // Remove port if present
+        }
+        
+        // Use port 3031 for WSS (secure), 3030 for WS (non-secure)
+        const wsPort = protocol === 'wss:' ? 3031 : 3030;
+        const wsUrl = `${protocol}//${wsHost}:${wsPort}`;
         
         console.log('🔗 Attempting to connect to remote control server:', wsUrl);
+        console.log('🔗 WebSocket Host:', wsHost);
+        console.log('🔗 Page loaded from:', window.location.host);
         
         try {
             this.ws = new WebSocket(wsUrl);
@@ -1336,7 +1436,10 @@ class MobileHydra {
     }
     
     handleRemoteCommand(message) {
-        console.log('📨 Remote command:', message.type, message);
+        // Don't log heartbeat messages to reduce console noise
+        if (message.type !== 'heartbeat') {
+            console.log('📨 Remote command:', message.type, message);
+        }
         
         // Save state before emergency commands
         if (message.type === 'emergency' && !this.emergencyMode) {
@@ -1617,6 +1720,15 @@ class MobileHydra {
             case 'fullscreen':
                 this.toggleFullscreen();
                 break;
+            
+            case 'request_preset_list':
+                // Send preset list to controller when requested
+                console.log('📤 Sending preset list on request:', Object.keys(this.allPresets).length, 'presets');
+                this.sendToController({
+                    type: 'preset_list',
+                    presets: Object.keys(this.allPresets)
+                });
+                break;
         }
     }
     
@@ -1771,19 +1883,47 @@ class MobileHydra {
     }
 
     renderVideo() {
-        const videoAspect = this.videoElement.videoWidth / this.videoElement.videoHeight;
+        // Determine source: GIF player, GIF image, or video element
+        let sourceElement = null;
+        let sourceWidth = 0;
+        let sourceHeight = 0;
+        
+        if (this.gifImageLoaded) {
+            if (this.gifPlayer && this.gifPlayer.getCurrentCanvas) {
+                // Use GIF player canvas
+                sourceElement = this.gifPlayer.getCurrentCanvas();
+                sourceWidth = sourceElement.width;
+                sourceHeight = sourceElement.height;
+            } else if (this.gifImageEl && this.gifImageEl.complete) {
+                // Use native image element
+                sourceElement = this.gifImageEl;
+                sourceWidth = this.gifImageEl.naturalWidth;
+                sourceHeight = this.gifImageEl.naturalHeight;
+            }
+        } else if (this.videoElement.videoWidth > 0) {
+            // Use video element
+            sourceElement = this.videoElement;
+            sourceWidth = this.videoElement.videoWidth;
+            sourceHeight = this.videoElement.videoHeight;
+        }
+        
+        if (!sourceElement || sourceWidth === 0 || sourceHeight === 0) {
+            return; // Nothing to render
+        }
+        
+        const sourceAspect = sourceWidth / sourceHeight;
         const canvasAspect = this.canvas.width / this.canvas.height;
         
         let drawWidth, drawHeight, drawX, drawY;
         
-        // Calculate dimensions to fit video in canvas while maintaining aspect ratio
-        if (videoAspect > canvasAspect) {
+        // Calculate dimensions to fit source in canvas while maintaining aspect ratio
+        if (sourceAspect > canvasAspect) {
             drawWidth = this.canvas.width;
-            drawHeight = this.canvas.width / videoAspect;
+            drawHeight = this.canvas.width / sourceAspect;
             drawX = 0;
             drawY = (this.canvas.height - drawHeight) / 2;
         } else {
-            drawWidth = this.canvas.height * videoAspect;
+            drawWidth = this.canvas.height * sourceAspect;
             drawHeight = this.canvas.height;
             drawX = (this.canvas.width - drawWidth) / 2;
             drawY = 0;
@@ -1797,7 +1937,7 @@ class MobileHydra {
             drawX = -drawX - drawWidth;
         }
         
-        this.ctx.drawImage(this.videoElement, drawX, drawY, drawWidth, drawHeight);
+        this.ctx.drawImage(sourceElement, drawX, drawY, drawWidth, drawHeight);
         
         if (this.videoEffects.invert) {
             this.ctx.globalCompositeOperation = 'difference';

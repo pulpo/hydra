@@ -421,15 +421,18 @@ window.hydra.renderers['video'] = {
             if (directUrlInput) {
                 directUrlInput.addEventListener('input', function(e) {
                     const url = e.target.value.trim();
+                    console.log('📝 Direct URL input:', url);
                     if (url) {
                         // Basic URL validation
                         try {
                             new URL(url);
                             const isGif = url.toLowerCase().includes('.gif') || url.toLowerCase().includes('giphy.com');
+                            console.log('✅ Valid URL detected, isGif:', isGif);
                             const playBtn = directUrlInput.closest('group').querySelector('button');
                             playBtn.className = 'orange';
                             playBtn.disabled = false;
                             playBtn.videoSource = { type: 'direct', url: url, isGif: isGif };
+                            console.log('✅ Play button enabled for slot', index + 1);
                             
                             // Clear file input when direct URL is entered
                             const fileInput = fileInputs[index];
@@ -444,7 +447,8 @@ window.hydra.renderers['video'] = {
                                 generateThumbnailFromUrl(url, thumbnailCanvas, isGif);
                             }
                         }, 600);
-                        } catch {
+                        } catch (error) {
+                            console.error('❌ Invalid URL:', error);
                             const playBtn = directUrlInput.closest('group').querySelector('button');
                             playBtn.className = 'red';
                             playBtn.disabled = true;
@@ -479,6 +483,7 @@ window.hydra.renderers['video'] = {
         playButtons.forEach((playBtn, buttonIndex) => {
             playBtn.addEventListener('click', function(e) {
                 const slotNumber = buttonIndex + 1;
+                console.log('▶️ Play button clicked for slot', slotNumber, 'videoSource:', playBtn.videoSource);
                 if (playBtn.videoSource) {
                     // Clear previous video sources
                     deck.videoEl.pause();
@@ -507,7 +512,7 @@ window.hydra.renderers['video'] = {
                         deck.currentVideoSource = 'file';
                     } else if (playBtn.videoSource.type === 'direct') {
                         if (playBtn.videoSource.isGif) {
-                            // Handle GIF URL with custom GIF parser
+                            // Handle GIF URL - try custom parser first, fallback to native img
                             deck.gifImageLoaded = false;
                             
                             // Stop any existing GIF player
@@ -516,7 +521,7 @@ window.hydra.renderers['video'] = {
                                 deck.gifPlayer = null;
                             }
                             
-                            // Parse and play GIF
+                            // Try custom GIF parser first (for better control)
                             const parser = new GIFParser();
                             parser.parseFromURL(playBtn.videoSource.url)
                                 .then(gifData => {
@@ -524,7 +529,7 @@ window.hydra.renderers['video'] = {
                                         deck.gifPlayer = new GIFPlayer(gifData);
                                         deck.gifPlayer.play();
                                         deck.gifImageLoaded = true;
-                                        console.log(`Loaded GIF with ${gifData.frames.length} frames`);
+                                        console.log(`✅ Loaded GIF with ${gifData.frames.length} frames using GIF parser`);
                                         
                                         // Generate GIF thumbnail
                                         const thumbnailCanvas = document.querySelector(`[data-deck="${deck.id}"][data-video-slot="${slotNumber}"]`);
@@ -537,8 +542,28 @@ window.hydra.renderers['video'] = {
                                     }
                                 })
                                 .catch(error => {
-                                    console.error('Failed to parse GIF:', error);
-                                    deck.gifImageLoaded = false;
+                                    console.warn('GIF parser failed (likely CORS), falling back to native image:', error);
+                                    
+                                    // Fallback: Use native <img> element for GIF
+                                    if (!deck.gifImageEl) {
+                                        deck.gifImageEl = document.createElement('img');
+                                        deck.gifImageEl.style.display = 'none';
+                                        document.body.appendChild(deck.gifImageEl);
+                                    }
+                                    
+                                    deck.gifImageEl.onload = () => {
+                                        deck.gifImageLoaded = true;
+                                        console.log('✅ Loaded GIF using native image fallback');
+                                    };
+                                    
+                                    deck.gifImageEl.onerror = () => {
+                                        console.error('❌ Failed to load GIF even with fallback');
+                                        deck.gifImageLoaded = false;
+                                    };
+                                    
+                                    // Set crossOrigin to try to avoid CORS issues
+                                    deck.gifImageEl.crossOrigin = 'anonymous';
+                                    deck.gifImageEl.src = playBtn.videoSource.url;
                                 });
                             
                             deck.currentVideoSource = 'gif';
@@ -760,45 +785,61 @@ window.hydra.renderers['video'] = {
 
         // --- Main render ---
         deck.video.render = () => {
-            if (deck.currentVideoSource === 'gif' && deck.gifImageLoaded && deck.gifPlayer) {
-                const gifCanvas = deck.gifPlayer.getCurrentCanvas();
-                const aspectRatio = gifCanvas.width / gifCanvas.height;
-                const canvasAspectRatio = deck.canvas.width / deck.canvas.height;
+            if (deck.currentVideoSource === 'gif' && deck.gifImageLoaded) {
+                let sourceElement = null;
+                let sourceWidth = 0;
+                let sourceHeight = 0;
                 
-                let drawWidth, drawHeight, drawX, drawY;
-                
-                if (aspectRatio > canvasAspectRatio) {
-                    drawWidth = deck.canvas.width;
-                    drawHeight = deck.canvas.width / aspectRatio;
-                    drawX = 0;
-                    drawY = (deck.canvas.height - drawHeight) / 2;
-                } else {
-                    drawWidth = deck.canvas.height * aspectRatio;
-                    drawHeight = deck.canvas.height;
-                    drawX = (deck.canvas.width - drawWidth) / 2;
-                    drawY = 0;
+                // Use GIF player if available, otherwise use native image
+                if (deck.gifPlayer) {
+                    sourceElement = deck.gifPlayer.getCurrentCanvas();
+                    sourceWidth = sourceElement.width;
+                    sourceHeight = sourceElement.height;
+                } else if (deck.gifImageEl && deck.gifImageEl.complete) {
+                    sourceElement = deck.gifImageEl;
+                    sourceWidth = deck.gifImageEl.naturalWidth;
+                    sourceHeight = deck.gifImageEl.naturalHeight;
                 }
                 
-                let effectiveFlip = (deck.video.flipState ^ holdingFlip) ^ (deck.video.flipInvertState ^ holdingFlipInvert);
-                let effectiveInvert = (deck.video.flipInvertState ^ holdingFlipInvert) ^ (deck.video.invertState ^ holdingInvert);
-                
-                deck.ctx.save();
-                
-                if (effectiveFlip) {
-                    deck.ctx.scale(-1, 1);
-                    deck.ctx.drawImage(gifCanvas, -drawX - drawWidth, drawY, drawWidth, drawHeight);
-                } else {
-                    deck.ctx.drawImage(gifCanvas, drawX, drawY, drawWidth, drawHeight);
+                if (sourceElement && sourceWidth > 0 && sourceHeight > 0) {
+                    const aspectRatio = sourceWidth / sourceHeight;
+                    const canvasAspectRatio = deck.canvas.width / deck.canvas.height;
+                    
+                    let drawWidth, drawHeight, drawX, drawY;
+                    
+                    if (aspectRatio > canvasAspectRatio) {
+                        drawWidth = deck.canvas.width;
+                        drawHeight = deck.canvas.width / aspectRatio;
+                        drawX = 0;
+                        drawY = (deck.canvas.height - drawHeight) / 2;
+                    } else {
+                        drawWidth = deck.canvas.height * aspectRatio;
+                        drawHeight = deck.canvas.height;
+                        drawX = (deck.canvas.width - drawWidth) / 2;
+                        drawY = 0;
+                    }
+                    
+                    let effectiveFlip = (deck.video.flipState ^ holdingFlip) ^ (deck.video.flipInvertState ^ holdingFlipInvert);
+                    let effectiveInvert = (deck.video.flipInvertState ^ holdingFlipInvert) ^ (deck.video.invertState ^ holdingInvert);
+                    
+                    deck.ctx.save();
+                    
+                    if (effectiveFlip) {
+                        deck.ctx.scale(-1, 1);
+                        deck.ctx.drawImage(sourceElement, -drawX - drawWidth, drawY, drawWidth, drawHeight);
+                    } else {
+                        deck.ctx.drawImage(sourceElement, drawX, drawY, drawWidth, drawHeight);
+                    }
+                    
+                    if (effectiveInvert) {
+                        deck.ctx.globalCompositeOperation = 'difference';
+                        deck.ctx.fillStyle = 'white';
+                        deck.ctx.fillRect(0, 0, deck.canvas.width, deck.canvas.height);
+                        deck.ctx.globalCompositeOperation = 'source-over';
+                    }
+                    
+                    deck.ctx.restore();
                 }
-                
-                if (effectiveInvert) {
-                    deck.ctx.globalCompositeOperation = 'difference';
-                    deck.ctx.fillStyle = 'white';
-                    deck.ctx.fillRect(0, 0, deck.canvas.width, deck.canvas.height);
-                    deck.ctx.globalCompositeOperation = 'source-over';
-                }
-                
-                deck.ctx.restore();
                 
             } else if (deck.videoEl.src && deck.videoEl.videoWidth > 0) {
                 const ratio = deck.canvas.width / deck.videoEl.videoWidth;

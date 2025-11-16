@@ -62,13 +62,27 @@ class HydraController {
     // WebSocket Connection
     connect() {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const host = window.location.hostname;
-        const wsUrl = `${protocol}//${host}:3030`;
+        
+        // Allow WebSocket server to be specified via URL parameter
+        // Otherwise, use the same host where the page was loaded from
+        const urlParams = new URLSearchParams(window.location.search);
+        let wsHost = urlParams.get('ws');
+        
+        if (!wsHost) {
+            // If accessed from the same server, use that server's IP
+            // This ensures remote clients connect back to the server, not to themselves
+            wsHost = window.location.host.split(':')[0]; // Remove port if present
+        }
+        
+        // Use port 3031 for WSS (secure), 3030 for WS (non-secure)
+        const wsPort = protocol === 'wss:' ? 3031 : 3030;
+        const wsUrl = `${protocol}//${wsHost}:${wsPort}`;
         
         console.log('🔗 Attempting to connect to WebSocket server...');
         console.log('🔗 URL:', wsUrl);
         console.log('🔗 Protocol:', protocol);
-        console.log('🔗 Host:', host);
+        console.log('🔗 Host:', wsHost);
+        console.log('🔗 Page loaded from:', window.location.host);
         
         try {
             this.ws = new WebSocket(wsUrl);
@@ -149,7 +163,10 @@ class HydraController {
     }
     
     handleMessage(message) {
-        console.log('📨 Received:', message.type, message);
+        // Don't log heartbeat messages to reduce console noise
+        if (message.type !== 'heartbeat') {
+            console.log('📨 Received:', message.type, message);
+        }
         
         switch (message.type) {
             case 'status':
@@ -833,7 +850,8 @@ class HydraController {
     
     hasDisplayClients() {
         const displayText = document.getElementById('connected-displays').textContent;
-        return parseInt(displayText.match(/\\d+/)[0]) > 0;
+        const match = displayText.match(/\d+/);
+        return match ? parseInt(match[0]) > 0 : false;
     }
     
     showStatus(message, type = 'info', duration = 3000) {
