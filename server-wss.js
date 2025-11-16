@@ -215,6 +215,7 @@ function handleMessage(clientId, message) {
         case MessageTypes.EMERGENCY:
         case MessageTypes.SCENE:
         case 'mic_sensitivity':
+        case 'blend_mode':
             broadcastToDisplays(message);
             break;
 

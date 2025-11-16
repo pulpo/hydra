@@ -50,6 +50,9 @@ class MobileHydra {
         this.gifImageElements = [null, null, null, null, null, null];
         this.gifImageLoaded = false;
         
+        // Blend mode
+        this.blendMode = 'source-over';
+        
         // Remote control
         this.ws = null;
         this.isConnectedToController = false;
@@ -1384,7 +1387,12 @@ class MobileHydra {
             const hasVideoOrGif = (this.videoElement.videoWidth > 0) || this.gifImageLoaded;
             if (this.videoActive && hasVideoOrGif && ratio > 0) {
                 this.ctx.globalAlpha = ratio;
+                this.ctx.globalCompositeOperation = this.blendMode;
+                if (Math.random() < 0.001) { // Log occasionally
+                    console.log('🎨 Using blend mode:', this.blendMode);
+                }
                 this.renderVideo();
+                this.ctx.globalCompositeOperation = 'source-over'; // Reset to default
             }
 
             this.ctx.globalAlpha = 1;
@@ -1526,6 +1534,10 @@ class MobileHydra {
             case 'mic_sensitivity':
                 this.handleMicSensitivity(message);
                 break;
+            
+            case 'blend_mode':
+                this.handleBlendMode(message);
+                break;
         }
     }
     
@@ -1540,6 +1552,13 @@ class MobileHydra {
     handleMicSensitivity(message) {
         if (message.value !== undefined) {
             this.setMicrophoneSensitivity(message.value);
+        }
+    }
+    
+    handleBlendMode(message) {
+        if (message.mode) {
+            this.blendMode = message.mode;
+            console.log('🎨 Blend mode changed to:', this.blendMode);
         }
     }
 

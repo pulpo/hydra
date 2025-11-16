@@ -289,6 +289,11 @@ class HydraController {
             this.setCrossfader(parseInt(e.target.value));
         });
         
+        // Blend mode
+        document.getElementById('blend-mode').addEventListener('change', (e) => {
+            this.setBlendMode(e.target.value);
+        });
+        
         // Quick actions
         document.getElementById('action-blackout').addEventListener('click', () => {
             this.setMode('blackout');
@@ -515,6 +520,14 @@ class HydraController {
         this.send({
             type: 'crossfader',
             value: value
+        });
+    }
+    
+    setBlendMode(mode) {
+        console.log('🎨 Setting blend mode:', mode);
+        this.send({
+            type: 'blend_mode',
+            mode: mode
         });
     }
     
