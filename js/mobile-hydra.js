@@ -1416,9 +1416,8 @@ class MobileHydra {
             wsHost = window.location.host.split(':')[0]; // Remove port if present
         }
         
-        // Use port 3031 for WSS (secure), 3030 for WS (non-secure)
-        const wsPort = protocol === 'wss:' ? 3031 : 3030;
-        const wsUrl = `${protocol}//${wsHost}:${wsPort}`;
+        // Use /control path on same server and port
+        const wsUrl = `${protocol}//${window.location.host}/control`;
         
         console.log('🔗 Attempting to connect to remote control server:', wsUrl);
         console.log('🔗 WebSocket Host:', wsHost);

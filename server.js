@@ -161,23 +161,242 @@ wss.on('connection', (ws, req) => {
     });
 });
 
+// ============================================================================
+// Remote Control WebSocket Server (for mobile display + control panel)
+// ============================================================================
+
+const controlWss = new WebSocket.Server({ 
+    server: server,
+    path: '/control'
+});
+
+// Control server state management
+const controlClients = new Map();
+let displayClients = new Set(); // Mobile displays
+let controlPanelClients = new Set(); // Control panels
+
+const MessageTypes = {
+    CROSSFADER: 'crossfader',
+    EMERGENCY: 'emergency',
+    BEAT_SYNC: 'beat_sync',
+    PRESET: 'preset',
+    VIDEO: 'video',
+    EFFECT: 'effect',
+    SCENE: 'scene',
+    CONFIG: 'config',
+    FILE_UPLOAD: 'file_upload',
+    REGISTER: 'register',
+    HEARTBEAT: 'heartbeat',
+    STATUS: 'status'
+};
+
+controlWss.on('connection', (ws, req) => {
+    const clientId = Math.random().toString(36).substr(2, 9);
+    const clientInfo = {
+        id: clientId,
+        ws: ws,
+        type: null,
+        lastHeartbeat: Date.now(),
+        ip: req.socket.remoteAddress
+    };
+    
+    controlClients.set(clientId, clientInfo);
+    console.log(`📱 Control client connected: ${clientId} from ${clientInfo.ip}`);
+    console.log(`📊 Control counts - Total: ${controlClients.size}, Displays: ${displayClients.size}, Controls: ${controlPanelClients.size}`);
+    
+    // Send welcome message
+    ws.send(JSON.stringify({
+        type: MessageTypes.STATUS,
+        status: 'connected',
+        clientId: clientId,
+        timestamp: Date.now(),
+        serverInfo: {
+            connectedClients: controlClients.size,
+            displayClients: displayClients.size,
+            controlClients: controlPanelClients.size
+        }
+    }));
+    
+    // Message handler
+    ws.on('message', (data) => {
+        try {
+            const message = JSON.parse(data);
+            handleControlMessage(clientId, message);
+        } catch (error) {
+            console.error(`❌ Invalid control message from ${clientId}:`, error);
+        }
+    });
+    
+    // Close handler
+    ws.on('close', () => {
+        const client = controlClients.get(clientId);
+        if (client) {
+            if (client.type === 'display') {
+                displayClients.delete(clientId);
+            } else if (client.type === 'control') {
+                controlPanelClients.delete(clientId);
+            }
+            controlClients.delete(clientId);
+            console.log(`📱 Control client disconnected: ${clientId} (${client.type || 'unknown'})`);
+            
+            // Notify other clients
+            broadcastToControlPanels({
+                type: MessageTypes.STATUS,
+                action: 'client_disconnected',
+                clientId: clientId,
+                connectedClients: controlClients.size,
+                displayClients: displayClients.size,
+                controlClients: controlPanelClients.size
+            });
+        }
+    });
+    
+    ws.on('error', (error) => {
+        console.error(`❌ Control WebSocket error for ${clientId}:`, error);
+    });
+});
+
+function handleControlMessage(clientId, message) {
+    const client = controlClients.get(clientId);
+    if (!client) return;
+    
+    if (!message.timestamp) {
+        message.timestamp = Date.now();
+    }
+    
+    console.log(`📨 Control ${clientId} (${client.type || 'unknown'}): ${message.type}`);
+    
+    switch (message.type) {
+        case MessageTypes.REGISTER:
+            client.type = message.clientType;
+            client.name = message.clientName || `Client ${clientId}`;
+            
+            if (message.clientType === 'display') {
+                displayClients.add(clientId);
+                console.log(`📺 Display registered: ${client.name}`);
+                // Send initial state to new display
+                client.ws.send(JSON.stringify({
+                    type: MessageTypes.CONFIG,
+                    action: 'initial_state',
+                    timestamp: Date.now()
+                }));
+            } else if (message.clientType === 'control') {
+                controlPanelClients.add(clientId);
+                console.log(`🎛️ Control panel registered: ${client.name}`);
+            }
+            
+            // Broadcast registration update to all control panels
+            broadcastToControlPanels({
+                type: MessageTypes.STATUS,
+                action: 'client_registered',
+                clientId: clientId,
+                clientType: client.type,
+                clientName: client.name,
+                connectedClients: controlClients.size,
+                displayClients: displayClients.size,
+                controlClients: controlPanelClients.size
+            });
+            break;
+            
+        case MessageTypes.HEARTBEAT:
+            client.lastHeartbeat = Date.now();
+            client.ws.send(JSON.stringify({
+                type: MessageTypes.HEARTBEAT,
+                timestamp: Date.now()
+            }));
+            break;
+            
+        case MessageTypes.CROSSFADER:
+        case MessageTypes.PRESET:
+        case MessageTypes.VIDEO:
+        case MessageTypes.EFFECT:
+        case MessageTypes.EMERGENCY:
+        case MessageTypes.SCENE:
+        case 'mic_sensitivity':
+            // Forward control messages to displays
+            broadcastToDisplays(message);
+            break;
+            
+        case MessageTypes.STATUS:
+        case 'preset_list':
+            // Forward status updates to control panels
+            broadcastToControlPanels(message);
+            break;
+            
+        default:
+            console.warn(`⚠️ Unknown control message type: ${message.type}`);
+    }
+}
+
+function broadcastToDisplays(message) {
+    const data = JSON.stringify(message);
+    displayClients.forEach(clientId => {
+        const client = controlClients.get(clientId);
+        if (client && client.ws.readyState === WebSocket.OPEN) {
+            client.ws.send(data);
+        }
+    });
+}
+
+function broadcastToControlPanels(message) {
+    const data = JSON.stringify(message);
+    controlPanelClients.forEach(clientId => {
+        const client = controlClients.get(clientId);
+        if (client && client.ws.readyState === WebSocket.OPEN) {
+            client.ws.send(data);
+        }
+    });
+}
+
+// Heartbeat for control clients
+setInterval(() => {
+    const now = Date.now();
+    const timeoutThreshold = 60000; // 60 seconds
+    
+    controlClients.forEach((client, clientId) => {
+        if (now - client.lastHeartbeat > timeoutThreshold) {
+            console.log(`💔 Control client ${clientId} timed out`);
+            client.ws.terminate();
+            controlClients.delete(clientId);
+            displayClients.delete(clientId);
+            controlPanelClients.delete(clientId);
+        } else if (client.ws.readyState === WebSocket.OPEN) {
+            try {
+                client.ws.send(JSON.stringify({
+                    type: MessageTypes.HEARTBEAT,
+                    timestamp: now
+                }));
+            } catch (error) {
+                console.error(`❌ Failed to send heartbeat to ${clientId}:`, error);
+            }
+        }
+    });
+}, 30000); // Every 30 seconds
+
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`HTTP Server running at http://0.0.0.0:${PORT}/`);
-    console.log(`WebSocket Server running at ws://0.0.0.0:${PORT}/ws`);
+    console.log(`WebSocket Streaming at ws://0.0.0.0:${PORT}/ws`);
+    console.log(`WebSocket Control at ws://0.0.0.0:${PORT}/control`);
     console.log('');
     
     if (process.env.NODE_ENV === 'production') {
         console.log('🎵 Hydra VJ Mixer - Production Mode');
         console.log('==================================');
         console.log('Main interface: http://localhost:' + PORT);
+        console.log('Mobile display: http://localhost:' + PORT + '/mobile.html');
+        console.log('Control panel: http://localhost:' + PORT + '/control.html');
         console.log('Viewer page: http://localhost:' + PORT + '/viewer.html');
-        console.log('WebSocket endpoint: ws://localhost:' + PORT + '/ws');
+        console.log('WebSocket streaming: ws://localhost:' + PORT + '/ws');
+        console.log('WebSocket control: ws://localhost:' + PORT + '/control');
     } else {
         console.log('To access from other devices on your network:');
         console.log('1. Find your local IP address (usually 192.168.x.x or 10.x.x.x)');
         console.log('2. Open http://YOUR_IP:' + PORT + '/ on other devices');
-        console.log('3. Use the viewer page at http://YOUR_IP:' + PORT + '/viewer.html');
-        console.log('4. WebSocket endpoint: ws://YOUR_IP:' + PORT + '/ws');
+        console.log('3. Mobile display: http://YOUR_IP:' + PORT + '/mobile.html');
+        console.log('4. Control panel: http://YOUR_IP:' + PORT + '/control.html');
+        console.log('5. Viewer page: http://YOUR_IP:' + PORT + '/viewer.html');
+        console.log('6. WebSocket streaming: ws://YOUR_IP:' + PORT + '/ws');
+        console.log('7. WebSocket control: ws://YOUR_IP:' + PORT + '/control');
     }
 });
 
