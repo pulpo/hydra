@@ -210,7 +210,10 @@
                 return;
             }
 
-            const wsUrl = `ws://${serverIp}:8082`;
+            // Detect protocol automatically
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${serverIp}/ws`;
+            console.log('📺 Viewer connecting to:', wsUrl);
             updateStatus('Connecting...', 'connecting');
 
             try {

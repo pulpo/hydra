@@ -4,7 +4,6 @@ const fs = require('fs');
 const path = require('path');
 
 const PORT = process.env.PORT || 8080;
-const WS_PORT = process.env.WS_PORT || 8082;
 
 // Create HTTP server for serving files
 const server = http.createServer((req, res) => {
@@ -50,8 +49,11 @@ const server = http.createServer((req, res) => {
     });
 });
 
-// Create WebSocket server for streaming
-const wss = new WebSocket.Server({ port: WS_PORT });
+// Create WebSocket server for streaming - attached to HTTP server on /ws path
+const wss = new WebSocket.Server({ 
+    server: server,    // Attach to existing HTTP server
+    path: '/ws'        // Listen on /ws path
+});
 
 let streamingClients = new Set();
 let broadcaster = null;
@@ -161,7 +163,7 @@ wss.on('connection', (ws, req) => {
 
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`HTTP Server running at http://0.0.0.0:${PORT}/`);
-    console.log(`WebSocket Server running at ws://0.0.0.0:${WS_PORT}/`);
+    console.log(`WebSocket Server running at ws://0.0.0.0:${PORT}/ws`);
     console.log('');
     
     if (process.env.NODE_ENV === 'production') {
@@ -169,11 +171,13 @@ server.listen(PORT, '0.0.0.0', () => {
         console.log('==================================');
         console.log('Main interface: http://localhost:' + PORT);
         console.log('Viewer page: http://localhost:' + PORT + '/viewer.html');
+        console.log('WebSocket endpoint: ws://localhost:' + PORT + '/ws');
     } else {
         console.log('To access from other devices on your network:');
         console.log('1. Find your local IP address (usually 192.168.x.x or 10.x.x.x)');
         console.log('2. Open http://YOUR_IP:' + PORT + '/ on other devices');
         console.log('3. Use the viewer page at http://YOUR_IP:' + PORT + '/viewer.html');
+        console.log('4. WebSocket endpoint: ws://YOUR_IP:' + PORT + '/ws');
     }
 });
 

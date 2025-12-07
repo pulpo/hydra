@@ -3525,7 +3525,10 @@ window.hydra = (function(){
                     return;
                 }
 
-                const wsUrl = `ws://${window.location.hostname}:8082`;
+                // Use secure WebSocket (wss://) when page is loaded over HTTPS
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${protocol}//${window.location.host}/ws`;
+                console.log('🔗 Connecting to WebSocket:', wsUrl);
                 
                 try {
                     this.ws = new WebSocket(wsUrl);
