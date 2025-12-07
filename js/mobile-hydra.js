@@ -1416,8 +1416,8 @@ class MobileHydra {
             wsHost = window.location.host.split(':')[0]; // Remove port if present
         }
         
-        // Use /control path on same server and port
-        const wsUrl = `${protocol}//${window.location.host}/control`;
+        // Use /remote-control path on same server and port
+        const wsUrl = `${protocol}//${window.location.host}/remote-control`;
         
         console.log('🔗 Attempting to connect to remote control server:', wsUrl);
         console.log('🔗 WebSocket Host:', wsHost);

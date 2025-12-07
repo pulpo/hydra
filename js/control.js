@@ -74,8 +74,8 @@ class HydraController {
             wsHost = window.location.host.split(':')[0]; // Remove port if present
         }
         
-        // Use /control path on same server and port
-        const wsUrl = `${protocol}//${window.location.host}/control`;
+        // Use /remote-control path on same server and port
+        const wsUrl = `${protocol}//${window.location.host}/remote-control`;
         
         console.log('🔗 Attempting to connect to WebSocket server...');
         console.log('🔗 URL:', wsUrl);
