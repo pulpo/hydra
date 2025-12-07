@@ -81,20 +81,6 @@ jobs:
       pull-requests: write
     
     steps:
-      - name: Determine environment
-        id: env
-        run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            echo "environment=base" >> $GITHUB_OUTPUT
-            echo "🚀 Deploying to PRODUCTION (hydra.pulpo.qzz.io)"
-          elif [[ "${{ github.ref }}" == refs/heads/feat/* ]]; then
-            echo "environment=staging" >> $GITHUB_OUTPUT
-            echo "🧪 Deploying to STAGING (hydra-staging.pulpo.qzz.io)"
-          else
-            echo "environment=staging" >> $GITHUB_OUTPUT
-            echo "⚠️ Unknown branch, deploying to staging"
-          fi
-
       - name: Extract image tags
         id: extract-tags
         run: |
@@ -104,6 +90,17 @@ jobs:
           echo "image-tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
           echo "📦 Hydra tag: ${IMAGE_TAG}"
 
+      - name: Determine deployment target
+        id: deployment
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "🚀 Deploying to PRODUCTION (hydra.pulpo.qzz.io)"
+          elif [[ "${{ github.ref }}" == refs/heads/feat/* ]]; then
+            echo "🧪 Deploying to STAGING (hydra-staging.pulpo.qzz.io)"
+          else
+            echo "⚠️ Unknown branch, deploying to staging"
+          fi
+
       - name: Update GitOps Repository
         uses: southernlights-tech/update-gitops-action@v1.0.4
         with:
@@ -112,7 +109,7 @@ jobs:
           commit-name: "GitOps Bot"
           changes-by-file: |
             {
-              "apps/${{ steps.env.outputs.environment }}/hydra/hydra.yaml": {
+              "apps/base/hydra/hydra.yaml": {
                 "spec.values.image.tag": "${{ steps.extract-tags.outputs.image-tag }}"
               }
             }
