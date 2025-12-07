@@ -7,6 +7,21 @@ const PORT = process.env.PORT || 8080;
 
 // Create HTTP server for serving files
 const server = http.createServer((req, res) => {
+    // Handle WebSocket endpoint paths - return 200 OK for GET requests
+    // The actual WebSocket upgrade is handled by the WebSocket.Server instances
+    const url = req.url.split('?')[0]; // Remove query params
+    if (url === '/ws' || url === '/control') {
+        if (req.headers.upgrade && req.headers.upgrade.toLowerCase() === 'websocket') {
+            // WebSocket upgrade will be handled by ws library, don't respond here
+            return;
+        } else {
+            // Regular HTTP request to WebSocket endpoint - return helpful message
+            res.writeHead(200, { 'Content-Type': 'text/plain' });
+            res.end('WebSocket endpoint. Use WSS protocol to connect.\n');
+            return;
+        }
+    }
+    
     let filePath = '.' + req.url;
     if (filePath === './') {
         filePath = './index.html';
