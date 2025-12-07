@@ -10,7 +10,7 @@ const server = http.createServer((req, res) => {
     // WebSocket path - this endpoint only supports WebSocket connections
     // The ws library handles WebSocket upgrades automatically via the 'upgrade' event
     // We just need to handle regular HTTP GET requests gracefully
-    const url = req.url.split('?')[0]; // Remove query params
+    const url = req.url.split('?')[0]; // Remove query params for routing
     if (url === '/remote-control') {
         // Return helpful message for HTTP GET requests to WebSocket endpoint
         res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -18,7 +18,8 @@ const server = http.createServer((req, res) => {
         return;
     }
     
-    let filePath = '.' + req.url;
+    // Use url without query params for file serving
+    let filePath = '.' + url;
     if (filePath === './') {
         filePath = './index.html';
     }
