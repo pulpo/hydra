@@ -28,7 +28,7 @@ RUN mkdir -p /app/logs && chown hydra:nodejs /app/logs
 USER hydra
 
 # Expose ports
-EXPOSE 8080 8081
+EXPOSE 8080 8082
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
