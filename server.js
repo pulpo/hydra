@@ -171,7 +171,10 @@ function handleControlMessage(clientId, message) {
         message.timestamp = Date.now();
     }
     
-    console.log(`📨 Control ${clientId} (${client.type || 'unknown'}): ${message.type}`);
+    // Only log non-heartbeat messages to reduce console noise
+    if (message.type !== MessageTypes.HEARTBEAT) {
+        console.log(`📨 Control ${clientId} (${client.type || 'unknown'}): ${message.type}`);
+    }
     
     switch (message.type) {
         case MessageTypes.REGISTER:

@@ -17,7 +17,7 @@ class GIFParser {
             const response = await fetch(url);
             const arrayBuffer = await response.arrayBuffer();
             const uint8Array = new Uint8Array(arrayBuffer);
-            return this.parse(uint8Array);
+            return this.parseAsync(uint8Array);
         } catch (error) {
             console.error('Failed to fetch GIF:', error);
             throw error;
@@ -53,7 +53,7 @@ class GIFParser {
             this.globalColorTable = this.readColorTable(globalColorTableSize);
         }
 
-        // Parse data stream
+        // Parse data stream - this is the synchronous version
         while (this.pos < this.data.length) {
             const separator = this.readUint8();
             
@@ -74,6 +74,84 @@ class GIFParser {
             height: this.height,
             frames: this.frames
         };
+    }
+
+    // Async version of parse that doesn't block the main thread
+    async parseAsync(data) {
+        this.data = data;
+        this.pos = 0;
+        this.frames = [];
+
+        // Check GIF signature
+        const signature = this.readString(6);
+        if (signature !== 'GIF87a' && signature !== 'GIF89a') {
+            throw new Error('Invalid GIF signature');
+        }
+
+        // Read logical screen descriptor
+        this.width = this.readUint16();
+        this.height = this.readUint16();
+        
+        const packed = this.readUint8();
+        const globalColorTableFlag = (packed & 0x80) !== 0;
+        const colorResolution = (packed & 0x70) >> 4;
+        const sortFlag = (packed & 0x08) !== 0;
+        const globalColorTableSize = 2 << (packed & 0x07);
+
+        this.backgroundColorIndex = this.readUint8();
+        this.pixelAspectRatio = this.readUint8();
+
+        // Read global color table if present
+        if (globalColorTableFlag) {
+            this.globalColorTable = this.readColorTable(globalColorTableSize);
+        }
+
+        // Parse data stream asynchronously, processing in chunks
+        return new Promise((resolve, reject) => {
+            const parseChunk = () => {
+                try {
+                    let chunkCount = 0;
+                    const maxChunkSize = 5; // Process only a few elements at a time
+
+                    while (this.pos < this.data.length && chunkCount < maxChunkSize) {
+                        const separator = this.readUint8();
+                        
+                        if (separator === 0x21) { // Extension
+                            this.parseExtension();
+                        } else if (separator === 0x2C) { // Image descriptor
+                            this.parseImageAsync(); // Updated to use async image processing
+                        } else if (separator === 0x3B) { // Trailer
+                            resolve({
+                                width: this.width,
+                                height: this.height,
+                                frames: this.frames
+                            });
+                            return;
+                        } else {
+                            // Skip unknown data
+                            this.pos++;
+                        }
+                        
+                        chunkCount++;
+                    }
+
+                    // If we still have more to process, yield control and continue
+                    if (this.pos < this.data.length) {
+                        setTimeout(parseChunk, 0);
+                    } else {
+                        resolve({
+                            width: this.width,
+                            height: this.height,
+                            frames: this.frames
+                        });
+                    }
+                } catch (error) {
+                    reject(error);
+                }
+            };
+
+            parseChunk();
+        });
     }
 
     parseExtension() {
@@ -179,6 +257,12 @@ class GIFParser {
         this.nextFrameDelay = 100;
         this.nextFrameDisposal = 0;
         this.nextFrameTransparent = null;
+    }
+
+    // Async version of parseImage that can be called during async parsing
+    parseImageAsync() {
+        // Same as parseImage but we'll call it in the async context
+        this.parseImage();
     }
 
     readColorTable(size) {
