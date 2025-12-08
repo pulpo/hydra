@@ -220,6 +220,7 @@ function handleControlMessage(clientId, message) {
         case MessageTypes.EMERGENCY:
         case MessageTypes.SCENE:
         case 'mic_sensitivity':
+        case 'blend_mode':
             // Forward control messages to displays
             broadcastToDisplays(message);
             break;

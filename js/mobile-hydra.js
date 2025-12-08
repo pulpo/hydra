@@ -1364,7 +1364,7 @@ class MobileHydra {
                 });
             }
 
-            // Render Butterchurn
+            // Render Butterchurn (always at 1-ratio for crossfading)
             if (this.butterchurnActive && this.butterchurnRenderer && ratio < 1) {
                 try {
                     // Render butterchurn to its WebGL canvas
@@ -1373,6 +1373,7 @@ class MobileHydra {
 
                     // Composite butterchurn canvas to main canvas
                     this.ctx.globalAlpha = 1 - ratio;
+                    this.ctx.globalCompositeOperation = 'source-over';
                     this.ctx.drawImage(this.butterchurnCanvas, 0, 0,
                         this.canvas.width / (window.devicePixelRatio || 1),
                         this.canvas.height / (window.devicePixelRatio || 1));
@@ -1383,19 +1384,28 @@ class MobileHydra {
                 }
             }
 
-            // Render Video or GIF
+            // Render Video or GIF with blend mode
             const hasVideoOrGif = (this.videoElement.videoWidth > 0) || this.gifImageLoaded;
             if (this.videoActive && hasVideoOrGif && ratio > 0) {
-                this.ctx.globalAlpha = ratio;
+                // Apply the selected blend mode - this determines how video blends with butterchurn
                 this.ctx.globalCompositeOperation = this.blendMode;
-                if (Math.random() < 0.001) { // Log occasionally
-                    console.log('🎨 Using blend mode:', this.blendMode);
+                this.ctx.globalAlpha = ratio;
+                
+                // Always log blend mode rendering for debugging
+                if (Math.random() < 0.05) { // Log 5% of frames
+                    console.log('🎨 RENDERING with blend mode:', this.blendMode, 'alpha:', ratio.toFixed(2), 'butterchurn:', (1-ratio).toFixed(2));
                 }
+                
                 this.renderVideo();
-                this.ctx.globalCompositeOperation = 'source-over'; // Reset to default
+                
+                // Reset to defaults
+                this.ctx.globalCompositeOperation = 'source-over';
+                this.ctx.globalAlpha = 1.0;
             }
 
+            // Ensure everything is reset
             this.ctx.globalAlpha = 1;
+            this.ctx.globalCompositeOperation = 'source-over';
         } catch (error) {
             console.warn('Render frame error:', error);
         }
@@ -1487,6 +1497,11 @@ class MobileHydra {
             console.log('📨 Remote command:', message.type, message);
         }
         
+        // Log blend_mode specifically
+        if (message.type === 'blend_mode') {
+            console.log('🎨 BLEND MODE MESSAGE RECEIVED:', message);
+        }
+        
         // Save state before emergency commands
         if (message.type === 'emergency' && !this.emergencyMode) {
             this.lastKnownState = this.captureCurrentState();
@@ -1556,9 +1571,43 @@ class MobileHydra {
     
     handleBlendMode(message) {
         if (message.mode) {
+            const oldMode = this.blendMode;
             this.blendMode = message.mode;
-            console.log('🎨 Blend mode changed to:', this.blendMode);
+            console.log('🎨🎨🎨 BLEND MODE CHANGED 🎨🎨🎨');
+            console.log('   Old mode:', oldMode);
+            console.log('   New mode:', this.blendMode);
+            console.log('   butterchurnActive:', this.butterchurnActive);
+            console.log('   videoActive:', this.videoActive);
+            console.log('   crossfader:', this.crossfaderValue);
+            
+            // Show visual feedback on screen
+            this.showBlendModeNotification(this.blendMode);
         }
+    }
+    
+    showBlendModeNotification(mode) {
+        // Create a temporary notification element
+        const notification = document.createElement('div');
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 15px 20px;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: bold;
+            z-index: 10000;
+            border: 2px solid #4a9eff;
+        `;
+        notification.textContent = `Blend Mode: ${mode}`;
+        document.body.appendChild(notification);
+        
+        // Remove after 2 seconds
+        setTimeout(() => {
+            notification.remove();
+        }, 2000);
     }
 
     setMicrophoneSensitivity(value) {
