@@ -105,6 +105,14 @@ window.hydra.renderers['video'] = {
                             variable: `file${n}`
                         },
                         {
+                            type: 'textarea',
+                            label: 'Direct URL',
+                            variable: `directUrl${n}`,
+                            containerClass: 'direct-url-input',
+                            placeholder: 'https://example.com/video.mp4 or .gif'
+                        },
+
+                        {
                             type: 'button',
                             label: 'Play',
                             variable: `play${n}`,
@@ -120,6 +128,235 @@ window.hydra.renderers['video'] = {
 
         deck.video = window.hydra.renderer.init(deck, 'video', {defaults, ui});
 
+        // Create thumbnail containers for each video slot after DOM is ready
+        setTimeout(() => {
+            for (let i = 1; i <= 10; i++) {
+                const playButton = document.querySelector(`[data-deck="${deck.id}"][data-variable="play${i}"]`);
+                if (playButton) {
+                    const thumbnailContainer = document.createElement('div');
+                    thumbnailContainer.className = 'video-thumbnail-container';
+                    thumbnailContainer.innerHTML = `
+                        <canvas class="video-thumbnail" width="120" height="68" data-deck="${deck.id}" data-video-slot="${i}"></canvas>
+                        <div class="thumbnail-overlay">No preview</div>
+                    `;
+                    
+                    // Insert thumbnail container after the play button's parent
+                    const playButtonParent = playButton.parentElement;
+                    if (playButtonParent) {
+                        playButtonParent.appendChild(thumbnailContainer);
+                    }
+                }
+            }
+        }, 500); // Increased timeout to ensure DOM is ready
+
+        // Thumbnail generation functions
+        function generateVideoThumbnail(videoElement, thumbnailCanvas, callback) {
+            const ctx = thumbnailCanvas.getContext('2d');
+            const container = thumbnailCanvas.closest('.video-thumbnail-container');
+            const overlay = container.querySelector('.thumbnail-overlay');
+            
+            // Set loading state
+            container.classList.add('loading');
+            container.classList.remove('has-preview', 'error');
+            overlay.textContent = 'Loading...';
+            
+            // Wait for video metadata to load
+            const onLoadedMetadata = () => {
+                try {
+                    const aspectRatio = videoElement.videoWidth / videoElement.videoHeight;
+                    
+                    // Calculate dimensions maintaining aspect ratio
+                    let drawWidth = 120;
+                    let drawHeight = 120 / aspectRatio;
+                    
+                    if (drawHeight > 68) {
+                        drawHeight = 68;
+                        drawWidth = 68 * aspectRatio;
+                    }
+                    
+                    const x = (120 - drawWidth) / 2;
+                    const y = (68 - drawHeight) / 2;
+                    
+                    // Clear canvas and draw thumbnail
+                    ctx.clearRect(0, 0, 120, 68);
+                    ctx.fillStyle = '#000';
+                    ctx.fillRect(0, 0, 120, 68);
+                    ctx.drawImage(videoElement, x, y, drawWidth, drawHeight);
+                    
+                    // Update container state
+                    container.classList.remove('loading');
+                    container.classList.add('has-preview');
+                    
+                    if (callback) callback();
+                } catch (error) {
+                    console.error('Error generating video thumbnail:', error);
+                    container.classList.remove('loading');
+                    container.classList.add('error');
+                    overlay.textContent = 'Error loading';
+                }
+                
+                videoElement.removeEventListener('loadedmetadata', onLoadedMetadata);
+            };
+            
+            videoElement.addEventListener('loadedmetadata', onLoadedMetadata);
+            
+            // If metadata is already loaded
+            if (videoElement.readyState >= 1) {
+                onLoadedMetadata();
+            }
+        }
+        
+        function generateGifThumbnail(gifPlayer, thumbnailCanvas) {
+            const ctx = thumbnailCanvas.getContext('2d');
+            const container = thumbnailCanvas.closest('.video-thumbnail-container');
+            const overlay = container.querySelector('.thumbnail-overlay');
+            
+            try {
+                const firstFrameCanvas = gifPlayer.getCurrentCanvas();
+                const aspectRatio = firstFrameCanvas.width / firstFrameCanvas.height;
+                
+                // Calculate dimensions maintaining aspect ratio
+                let drawWidth = 120;
+                let drawHeight = 120 / aspectRatio;
+                
+                if (drawHeight > 68) {
+                    drawHeight = 68;
+                    drawWidth = 68 * aspectRatio;
+                }
+                
+                const x = (120 - drawWidth) / 2;
+                const y = (68 - drawHeight) / 2;
+                
+                // Clear canvas and draw thumbnail
+                ctx.clearRect(0, 0, 120, 68);
+                ctx.fillStyle = '#000';
+                ctx.fillRect(0, 0, 120, 68);
+                ctx.drawImage(firstFrameCanvas, x, y, drawWidth, drawHeight);
+                
+                // Update container state
+                container.classList.remove('loading', 'error');
+                container.classList.add('has-preview');
+                
+            } catch (error) {
+                console.error('Error generating GIF thumbnail:', error);
+                container.classList.remove('loading');
+                container.classList.add('error');
+                overlay.textContent = 'Error loading';
+            }
+        }
+        
+        function generateThumbnailFromUrl(url, thumbnailCanvas, isGif = false) {
+            if (!thumbnailCanvas) return;
+            
+            const container = thumbnailCanvas.closest('.video-thumbnail-container');
+            if (!container) return;
+            
+            const overlay = container.querySelector('.thumbnail-overlay');
+            const ctx = thumbnailCanvas.getContext('2d');
+            
+            // Set loading state
+            container.classList.add('loading');
+            container.classList.remove('has-preview', 'error');
+            if (overlay) overlay.textContent = 'Loading...';
+            
+            // SIMPLIFIED APPROACH: Just try to load as image directly
+            const img = new Image();
+            
+            // Try without crossOrigin first (works for most cases)
+            img.onload = function() {
+                try {
+                    // Calculate dimensions
+                    const aspectRatio = img.width / img.height;
+                    let drawWidth = 120;
+                    let drawHeight = 120 / aspectRatio;
+                    
+                    if (drawHeight > 68) {
+                        drawHeight = 68;
+                        drawWidth = 68 * aspectRatio;
+                    }
+                    
+                    const x = (120 - drawWidth) / 2;
+                    const y = (68 - drawHeight) / 2;
+                    
+                    // Clear and draw
+                    ctx.clearRect(0, 0, 120, 68);
+                    ctx.fillStyle = '#000';
+                    ctx.fillRect(0, 0, 120, 68);
+                    ctx.drawImage(img, x, y, drawWidth, drawHeight);
+                    
+                    // Success!
+                    container.classList.remove('loading');
+                    container.classList.add('has-preview');
+                    
+                } catch (error) {
+                    console.warn('Canvas drawing failed:', error);
+                    createPlaceholder();
+                }
+            };
+            
+            img.onerror = function() {
+                console.warn('Image load failed, creating placeholder');
+                createPlaceholder();
+            };
+            
+            function createPlaceholder() {
+                // Create a simple but informative placeholder
+                ctx.clearRect(0, 0, 120, 68);
+                
+                if (isGif) {
+                    // GIF placeholder
+                    ctx.fillStyle = '#4a7c59';
+                    ctx.fillRect(0, 0, 120, 68);
+                    ctx.fillStyle = '#fff';
+                    ctx.font = '10px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('GIF', 60, 20);
+                    ctx.fillText('READY', 60, 35);
+                    ctx.fillText('Press Play', 60, 55);
+                } else {
+                    // Video placeholder
+                    ctx.fillStyle = '#2d4a7c';
+                    ctx.fillRect(0, 0, 120, 68);
+                    
+                    // Draw play button
+                    ctx.fillStyle = '#fff';
+                    ctx.beginPath();
+                    ctx.moveTo(50, 24);
+                    ctx.lineTo(70, 34);
+                    ctx.lineTo(50, 44);
+                    ctx.closePath();
+                    ctx.fill();
+                    
+                    ctx.font = '8px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('VIDEO READY', 60, 57);
+                }
+                
+                container.classList.remove('loading');
+                container.classList.add('has-preview');
+            }
+            
+            // Start loading
+            img.src = url;
+            
+            // Timeout fallback
+            setTimeout(() => {
+                if (container.classList.contains('loading')) {
+                    createPlaceholder();
+                }
+            }, 5000);
+        }
+        
+        function clearThumbnail(thumbnailCanvas) {
+            const ctx = thumbnailCanvas.getContext('2d');
+            const container = thumbnailCanvas.closest('.video-thumbnail-container');
+            const overlay = container.querySelector('.thumbnail-overlay');
+            
+            ctx.clearRect(0, 0, 120, 68);
+            container.classList.remove('loading', 'has-preview', 'error');
+            overlay.textContent = 'No preview';
+        }
+
         const fileInputs = [
             deck.video.file1Input,
             deck.video.file2Input,
@@ -133,7 +370,24 @@ window.hydra.renderers['video'] = {
             deck.video.file10Input,
         ];
 
-        fileInputs.forEach(fileInput => {
+        const directUrlInputs = [
+            deck.video.directUrl1Input,
+            deck.video.directUrl2Input,
+            deck.video.directUrl3Input,
+            deck.video.directUrl4Input,
+            deck.video.directUrl5Input,
+            deck.video.directUrl6Input,
+            deck.video.directUrl7Input,
+            deck.video.directUrl8Input,
+            deck.video.directUrl9Input,
+            deck.video.directUrl10Input,
+        ];
+
+
+
+
+
+        fileInputs.forEach((fileInput, index) => {
             fileInput.onchange = (e) => {
                 if (fileInput.files && fileInput.files[0]) {
                     const file = fileInput.files[0];
@@ -144,19 +398,188 @@ window.hydra.renderers['video'] = {
                         const playBtn = fileInput.closest('group').querySelector('button');
                         playBtn.className = 'orange';
                         playBtn.disabled = false;
-                        playBtn.addEventListener('click', function(e) {
-                            const playBtns = fileInput.closest('[data-tab-panel="renderer"]').querySelectorAll('button');
-                            playBtn.className = 'green';
-                            deck.videoEl.src = url;
-                            deck.videoEl.play();
-                            deck.videoEl.playbackRate = deck.video.playbackRate;
-                            stopReversePlayback();
-                            deck.video.hasPlayed = true;
-                        });
+                        playBtn.videoSource = { type: 'file', url: url };
+                        
+                        // Clear URL input when file is selected
+                        const directUrlInput = directUrlInputs[index];
+                        if (directUrlInput) {
+                            directUrlInput.value = '';
+                        }
+                        
+                        // Generate thumbnail for the uploaded file
+                        const thumbnailCanvas = document.querySelector(`[data-deck="${deck.id}"][data-video-slot="${index + 1}"]`);
+                        if (thumbnailCanvas) {
+                            generateThumbnailFromUrl(url, thumbnailCanvas, false);
+                        }
                     }
                     reader.readAsDataURL(file);
                 }
             }
+        });
+
+        directUrlInputs.forEach((directUrlInput, index) => {
+            if (directUrlInput) {
+                directUrlInput.addEventListener('input', function(e) {
+                    const url = e.target.value.trim();
+                    console.log('📝 Direct URL input:', url);
+                    if (url) {
+                        // Basic URL validation
+                        try {
+                            new URL(url);
+                            const isGif = url.toLowerCase().includes('.gif') || url.toLowerCase().includes('giphy.com');
+                            console.log('✅ Valid URL detected, isGif:', isGif);
+                            const playBtn = directUrlInput.closest('group').querySelector('button');
+                            playBtn.className = 'orange';
+                            playBtn.disabled = false;
+                            playBtn.videoSource = { type: 'direct', url: url, isGif: isGif };
+                            console.log('✅ Play button enabled for slot', index + 1);
+                            
+                            // Clear file input when direct URL is entered
+                            const fileInput = fileInputs[index];
+                            if (fileInput) {
+                                fileInput.value = '';
+                            }
+                            
+                        // Generate thumbnail for the URL with delay to ensure DOM is ready
+                        setTimeout(() => {
+                            const thumbnailCanvas = document.querySelector(`[data-deck="${deck.id}"][data-video-slot="${index + 1}"]`);
+                            if (thumbnailCanvas) {
+                                generateThumbnailFromUrl(url, thumbnailCanvas, isGif);
+                            }
+                        }, 600);
+                        } catch (error) {
+                            console.error('❌ Invalid URL:', error);
+                            const playBtn = directUrlInput.closest('group').querySelector('button');
+                            playBtn.className = 'red';
+                            playBtn.disabled = true;
+                            playBtn.videoSource = null;
+                            
+                            // Clear thumbnail on invalid URL
+                            const thumbnailCanvas = document.querySelector(`[data-deck="${deck.id}"][data-video-slot="${index + 1}"]`);
+                            if (thumbnailCanvas) {
+                                clearThumbnail(thumbnailCanvas);
+                            }
+                        }
+                    } else {
+                        const playBtn = directUrlInput.closest('group').querySelector('button');
+                        playBtn.className = 'red';
+                        playBtn.disabled = true;
+                        playBtn.videoSource = null;
+                        
+                        // Clear thumbnail when URL is empty
+                        const thumbnailCanvas = document.querySelector(`[data-deck="${deck.id}"][data-video-slot="${index + 1}"]`);
+                        if (thumbnailCanvas) {
+                            clearThumbnail(thumbnailCanvas);
+                        }
+                    }
+                });
+            }
+        });
+
+
+
+        // Add click handlers for play buttons
+        const playButtons = document.querySelectorAll(`[data-deck="${deck.id}"][data-tab-panel="renderer"] button[data-variable^="play"]`);
+        playButtons.forEach((playBtn, buttonIndex) => {
+            playBtn.addEventListener('click', function(e) {
+                const slotNumber = buttonIndex + 1;
+                console.log('▶️ Play button clicked for slot', slotNumber, 'videoSource:', playBtn.videoSource);
+                if (playBtn.videoSource) {
+                    // Clear previous video sources
+                    deck.videoEl.pause();
+                    deck.videoEl.src = '';
+                    if (deck.gifPlayer) {
+                        deck.gifPlayer.stop();
+                        deck.gifPlayer = null;
+                    }
+                    deck.currentVideoSource = null;
+                    deck.gifImageLoaded = false;
+                    
+                    // Reset all play buttons
+                    playButtons.forEach(btn => {
+                        if (btn !== playBtn) {
+                            btn.className = btn.videoSource ? 'orange' : 'red';
+                        }
+                    });
+                    
+                    playBtn.className = 'green';
+                    
+                    if (playBtn.videoSource.type === 'file') {
+                        // Handle local file (including GIFs)
+                        deck.videoEl.src = playBtn.videoSource.url;
+                        deck.videoEl.play();
+                        deck.videoEl.playbackRate = deck.video.playbackRate;
+                        deck.currentVideoSource = 'file';
+                    } else if (playBtn.videoSource.type === 'direct') {
+                        if (playBtn.videoSource.isGif) {
+                            // Handle GIF URL - try custom parser first, fallback to native img
+                            deck.gifImageLoaded = false;
+                            
+                            // Stop any existing GIF player
+                            if (deck.gifPlayer) {
+                                deck.gifPlayer.stop();
+                                deck.gifPlayer = null;
+                            }
+                            
+                            // Try custom GIF parser first (for better control)
+                            const parser = new GIFParser();
+                            parser.parseFromURL(playBtn.videoSource.url)
+                                .then(gifData => {
+                                    if (gifData.frames.length > 0) {
+                                        deck.gifPlayer = new GIFPlayer(gifData);
+                                        deck.gifPlayer.play();
+                                        deck.gifImageLoaded = true;
+                                        console.log(`✅ Loaded GIF with ${gifData.frames.length} frames using GIF parser`);
+                                        
+                                        // Generate GIF thumbnail
+                                        const thumbnailCanvas = document.querySelector(`[data-deck="${deck.id}"][data-video-slot="${slotNumber}"]`);
+                                        if (thumbnailCanvas) {
+                                            generateGifThumbnail(deck.gifPlayer, thumbnailCanvas);
+                                        }
+                                    } else {
+                                        console.error('No frames found in GIF');
+                                        deck.gifImageLoaded = false;
+                                    }
+                                })
+                                .catch(error => {
+                                    console.warn('GIF parser failed (likely CORS), falling back to native image:', error);
+                                    
+                                    // Fallback: Use native <img> element for GIF
+                                    if (!deck.gifImageEl) {
+                                        deck.gifImageEl = document.createElement('img');
+                                        deck.gifImageEl.style.display = 'none';
+                                        document.body.appendChild(deck.gifImageEl);
+                                    }
+                                    
+                                    deck.gifImageEl.onload = () => {
+                                        deck.gifImageLoaded = true;
+                                        console.log('✅ Loaded GIF using native image fallback');
+                                    };
+                                    
+                                    deck.gifImageEl.onerror = () => {
+                                        console.error('❌ Failed to load GIF even with fallback');
+                                        deck.gifImageLoaded = false;
+                                    };
+                                    
+                                    // Set crossOrigin to try to avoid CORS issues
+                                    deck.gifImageEl.crossOrigin = 'anonymous';
+                                    deck.gifImageEl.src = playBtn.videoSource.url;
+                                });
+                            
+                            deck.currentVideoSource = 'gif';
+                        } else {
+                            // Handle direct video URL
+                            deck.videoEl.src = playBtn.videoSource.url;
+                            deck.videoEl.play();
+                            deck.videoEl.playbackRate = deck.video.playbackRate;
+                            deck.currentVideoSource = 'file';
+                        }
+                    }
+                    
+                    stopReversePlayback();
+                    deck.video.hasPlayed = true;
+                }
+            });
         });
 
         deck.video.playbackRateInput.addEventListener('input', function(e) {
@@ -362,7 +785,63 @@ window.hydra.renderers['video'] = {
 
         // --- Main render ---
         deck.video.render = () => {
-            if (deck.videoEl.src) {
+            if (deck.currentVideoSource === 'gif' && deck.gifImageLoaded) {
+                let sourceElement = null;
+                let sourceWidth = 0;
+                let sourceHeight = 0;
+                
+                // Use GIF player if available, otherwise use native image
+                if (deck.gifPlayer) {
+                    sourceElement = deck.gifPlayer.getCurrentCanvas();
+                    sourceWidth = sourceElement.width;
+                    sourceHeight = sourceElement.height;
+                } else if (deck.gifImageEl && deck.gifImageEl.complete) {
+                    sourceElement = deck.gifImageEl;
+                    sourceWidth = deck.gifImageEl.naturalWidth;
+                    sourceHeight = deck.gifImageEl.naturalHeight;
+                }
+                
+                if (sourceElement && sourceWidth > 0 && sourceHeight > 0) {
+                    const aspectRatio = sourceWidth / sourceHeight;
+                    const canvasAspectRatio = deck.canvas.width / deck.canvas.height;
+                    
+                    let drawWidth, drawHeight, drawX, drawY;
+                    
+                    if (aspectRatio > canvasAspectRatio) {
+                        drawWidth = deck.canvas.width;
+                        drawHeight = deck.canvas.width / aspectRatio;
+                        drawX = 0;
+                        drawY = (deck.canvas.height - drawHeight) / 2;
+                    } else {
+                        drawWidth = deck.canvas.height * aspectRatio;
+                        drawHeight = deck.canvas.height;
+                        drawX = (deck.canvas.width - drawWidth) / 2;
+                        drawY = 0;
+                    }
+                    
+                    let effectiveFlip = (deck.video.flipState ^ holdingFlip) ^ (deck.video.flipInvertState ^ holdingFlipInvert);
+                    let effectiveInvert = (deck.video.flipInvertState ^ holdingFlipInvert) ^ (deck.video.invertState ^ holdingInvert);
+                    
+                    deck.ctx.save();
+                    
+                    if (effectiveFlip) {
+                        deck.ctx.scale(-1, 1);
+                        deck.ctx.drawImage(sourceElement, -drawX - drawWidth, drawY, drawWidth, drawHeight);
+                    } else {
+                        deck.ctx.drawImage(sourceElement, drawX, drawY, drawWidth, drawHeight);
+                    }
+                    
+                    if (effectiveInvert) {
+                        deck.ctx.globalCompositeOperation = 'difference';
+                        deck.ctx.fillStyle = 'white';
+                        deck.ctx.fillRect(0, 0, deck.canvas.width, deck.canvas.height);
+                        deck.ctx.globalCompositeOperation = 'source-over';
+                    }
+                    
+                    deck.ctx.restore();
+                }
+                
+            } else if (deck.videoEl.src && deck.videoEl.videoWidth > 0) {
                 const ratio = deck.canvas.width / deck.videoEl.videoWidth;
 
                 let effectiveFlip = (deck.video.flipState ^ holdingFlip) ^ (deck.video.flipInvertState ^ holdingFlipInvert);

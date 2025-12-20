@@ -29,7 +29,7 @@ Available online at https://hydra.virusav.com/
   - Tapestry Fract 2 (modification of code ported from https://editor.isf.video/shaders/295)
   - Text
   - Tunnel
-  - Video
+  - Video (supports local files and YouTube URLs)
   - Wave
 - Visual blend/layer composition modes
   - Color-burn
@@ -191,9 +191,126 @@ Available online at https://hydra.virusav.com/
 - Keyboard shortcuts (WIP)
 - Theming
 - Cast screens (deck 1, deck2 or mixed) to popup windows
+- **Network streaming to multiple viewers on the same network**
 - Video output resolution configuration
 - Extensible
 - Free/Libre Open Source Software
+
+## Network Streaming Setup
+
+To stream Hydra to multiple viewers on your network:
+
+### 1. Install Dependencies
+```bash
+npm install
+```
+
+### 2. Start the Server
+```bash
+node server.js
+```
+Or use the startup script:
+```bash
+./start-server.sh
+```
+
+### 3. Access Hydra
+- **Main interface**: `http://localhost:8080/`
+- **From other devices**: `http://YOUR_IP:8080/` (replace YOUR_IP with your computer's local IP)
+
+### 4. Connect Viewers
+- **Viewer page**: `http://YOUR_IP:8080/viewer.html`
+- Other devices on your network can open this URL to watch the stream
+
+### 5. Start Streaming
+1. Open Hydra in your browser
+2. Set up your visual mix
+3. Click the **Launch** button
+4. Choose **Network Streaming** when prompted
+5. Share the viewer URL with others on your network
+
+### Network Requirements
+- All devices must be on the same local network (WiFi/Ethernet)
+- Firewall may need to allow connections on ports 8080 and 8081
+- For best performance, use a wired connection for the main Hydra computer
+
+## Docker Deployment
+
+### Quick Start with Docker Compose
+```bash
+# Build and run with Docker Compose
+docker-compose up --build
+
+# Access the application
+# Main interface: http://localhost:8080
+# Viewer page: http://localhost:8080/viewer.html
+```
+
+### Manual Docker Build
+```bash
+# Build the Docker image
+docker build -t hydra-vj-mixer:latest .
+
+# Run the container
+docker run -d \
+  --name hydra \
+  -p 8080:8080 \
+  -p 8081:8081 \
+  hydra-vj-mixer:latest
+```
+
+## Kubernetes Deployment
+
+### Prerequisites
+- Kubernetes cluster (local or cloud)
+- kubectl configured
+- Docker installed
+- Optional: Nginx Ingress Controller
+
+### Quick Deploy
+```bash
+# Build and deploy everything
+./build-and-deploy.sh
+```
+
+### Manual Deployment
+```bash
+# Build Docker image
+docker build -t hydra-vj-mixer:latest .
+
+# Load image into local cluster (kind/minikube)
+kind load docker-image hydra-vj-mixer:latest
+# OR
+minikube image load hydra-vj-mixer:latest
+
+# Deploy to Kubernetes
+kubectl apply -f k8s/
+
+# Check deployment status
+kubectl get all -n hydra
+```
+
+### Access Methods
+
+#### With Ingress Controller
+- Main App: `http://hydra.local`
+- Viewer: `http://hydra.local/viewer.html`
+- Update `/etc/hosts` to point `hydra.local` to your ingress IP
+
+#### With NodePort (no ingress)
+- Main App: `http://NODE_IP:30080`
+- Viewer: `http://NODE_IP:30080/viewer.html`
+- WebSocket: `ws://NODE_IP:30081`
+
+### Scaling Considerations
+- **Single replica recommended** for WebSocket consistency
+- Multiple replicas possible but may cause connection issues
+- Use sticky sessions if scaling beyond 1 replica
+
+### Resource Requirements
+- **Minimum**: 128Mi RAM, 100m CPU
+- **Recommended**: 512Mi RAM, 500m CPU
+- **1080p streaming**: 1Gi RAM, 1000m CPU
 
 ## User Guide
 Coming soon.  There's still some work to do to add a built-in help system, and to add a few roadmap features which will need documenting.

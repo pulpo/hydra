@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎛️ Hydra Live Control</title>
+    <link rel="stylesheet" href="./css/control.css">
+</head>
+<body>
+    <div id="control-app">
+        <!-- Header -->
+        <header class="control-header">
+            <div class="logo">
+                <h1>🎵 Hydra Live Control</h1>
+                <div class="connection-status">
+                    <span id="status-indicator">🔴</span>
+                    <span id="status-text">Disconnected</span>
+                </div>
+            </div>
+            <div class="client-info">
+                <div id="connected-displays">📺 Displays: 0</div>
+                <div id="connected-controls">🎛️ Controls: 1</div>
+                <button id="emergency-stop" class="emergency-btn">🚨 EMERGENCY STOP</button>
+            </div>
+        </header>
+
+        <!-- Main Control Grid -->
+        <main class="control-grid">
+            <!-- Left Column: Butterchurn Controls -->
+            <section class="control-section butterchurn-section">
+                <h2>🎵 Butterchurn</h2>
+                
+                <div class="section-status">
+                    <label class="toggle">
+                        <input type="checkbox" id="butterchurn-enable" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <span>Enabled</span>
+                </div>
+
+                <div class="preset-controls">
+                    <div class="preset-nav">
+                        <button id="preset-prev" class="nav-btn">◀</button>
+                        <div class="preset-display">
+                            <div id="current-preset">Loading...</div>
+                            <div class="preset-info">
+                                <span id="preset-index">0/0</span>
+                                <span id="preset-mode">Favorites</span>
+                            </div>
+                        </div>
+                        <button id="preset-next" class="nav-btn">▶</button>
+                    </div>
+                    
+                    <div class="preset-actions">
+                        <button id="preset-random" class="action-btn">🎲 Random</button>
+                        <button id="preset-auto" class="action-btn">⏯️ Auto</button>
+                        <button id="preset-favorite" class="action-btn">❤️ Favorite</button>
+                    </div>
+
+                    <div class="preset-selector">
+                        <label for="preset-select">Select Preset:</label>
+                        <select id="preset-select">
+                            <option value="">Loading presets...</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="audio-controls">
+                    <h3>Audio Settings</h3>
+                    <button id="audio-enable" class="action-btn">🎤 Enable Mic</button>
+                    <div class="audio-status">
+                        <span id="audio-level">Audio: Silent</span>
+                    </div>
+                    <div class="mic-sensitivity-control">
+                        <label for="mic-sensitivity-slider">Mic Sensitivity:</label>
+                        <input type="range" id="mic-sensitivity-slider" min="0" max="2" value="1" step="0.05">
+                        <span id="mic-sensitivity-display">100%</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Center Column: Master Controls -->
+            <section class="control-section master-section">
+                <h2>🎛️ Master Mix</h2>
+
+                <!-- Crossfader -->
+                <div class="crossfader-control">
+                    <label>Crossfader</label>
+                    <div class="crossfader-container">
+                        <span class="crossfader-label">🎵</span>
+                        <input type="range" id="master-crossfader" min="0" max="100" value="50" 
+                               class="crossfader-slider">
+                        <span class="crossfader-label">🎬</span>
+                    </div>
+                    <div class="crossfader-value">
+                        <span id="crossfader-display">50%</span>
+                    </div>
+                </div>
+
+                <!-- Blend Mode -->
+                <div class="blend-mode-control" style="margin-top: 15px;">
+                    <label for="blend-mode">Blend Mode</label>
+                    <select id="blend-mode" style="width: 100%; padding: 8px; margin-top: 5px;">
+                        <option value="source-over">Normal (Default)</option>
+                        <option value="screen">Screen (Lighten)</option>
+                        <option value="multiply">Multiply (Darken)</option>
+                        <option value="overlay">Overlay</option>
+                        <option value="lighten">Lighten</option>
+                        <option value="darken">Darken</option>
+                        <option value="color-dodge">Color Dodge</option>
+                        <option value="color-burn">Color Burn</option>
+                        <option value="hard-light">Hard Light</option>
+                        <option value="soft-light">Soft Light</option>
+                        <option value="difference">Difference</option>
+                        <option value="exclusion">Exclusion</option>
+                        <option value="hue">Hue</option>
+                        <option value="saturation">Saturation</option>
+                        <option value="color">Color</option>
+                        <option value="luminosity">Luminosity</option>
+                    </select>
+                </div>
+
+                <!-- Quick Actions -->
+                <div class="quick-actions">
+                    <h3>Quick Actions</h3>
+                    <div class="action-grid">
+                        <button id="action-blackout" class="quick-btn blackout">🖤 Blackout</button>
+                        <button id="action-audio-only" class="quick-btn audio-only">🎵 Audio Only</button>
+                        <button id="action-video-only" class="quick-btn video-only">🎬 Video Only</button>
+                        <button id="action-fullscreen" class="quick-btn fullscreen">⛶ Fullscreen</button>
+                    </div>
+                </div>
+
+                <!-- BPM Sync -->
+                <div class="bpm-control">
+                    <h3>BPM Sync</h3>
+                    <div class="bpm-display">
+                        <div class="bpm-value">
+                            <span id="bpm-counter">120</span>
+                            <span>BPM</span>
+                        </div>
+                        <button id="bpm-tap" class="bpm-tap-btn">TAP</button>
+                    </div>
+                    <label class="toggle">
+                        <input type="checkbox" id="bpm-sync-enable">
+                        <span class="toggle-slider"></span>
+                        <span>Auto Sync</span>
+                    </label>
+                </div>
+            </section>
+
+            <!-- Right Column: Video Controls -->
+            <section class="control-section video-section">
+                <h2>🎬 Video</h2>
+                
+                <div class="section-status">
+                    <label class="toggle">
+                        <input type="checkbox" id="video-enable">
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <span>Enabled</span>
+                </div>
+
+                <div class="video-slots">
+                    <h3>Video Slots</h3>
+                    <div class="slots-grid">
+                        <div class="video-slot" data-slot="0">
+                            <div class="slot-preview"></div>
+                            <span class="slot-label">1</span>
+                            <div class="slot-controls">
+                                <button class="slot-play">▶️</button>
+                            </div>
+                        </div>
+                        <div class="video-slot" data-slot="1">
+                            <div class="slot-preview"></div>
+                            <span class="slot-label">2</span>
+                            <div class="slot-controls">
+                                <button class="slot-play">▶️</button>
+                            </div>
+                        </div>
+                        <div class="video-slot" data-slot="2">
+                            <div class="slot-preview"></div>
+                            <span class="slot-label">3</span>
+                            <div class="slot-controls">
+                                <button class="slot-play">▶️</button>
+                            </div>
+                        </div>
+                        <div class="video-slot" data-slot="3">
+                            <div class="slot-preview"></div>
+                            <span class="slot-label">4</span>
+                            <div class="slot-controls">
+                                <button class="slot-play">▶️</button>
+                            </div>
+                        </div>
+                        <div class="video-slot" data-slot="4">
+                            <div class="slot-preview"></div>
+                            <span class="slot-label">5</span>
+                            <div class="slot-controls">
+                                <button class="slot-play">▶️</button>
+                            </div>
+                        </div>
+                        <div class="video-slot" data-slot="5">
+                            <div class="slot-preview"></div>
+                            <span class="slot-label">6</span>
+                            <div class="slot-controls">
+                                <button class="slot-play">▶️</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="video-effects">
+                    <h3>Effects</h3>
+                    <div class="effects-grid">
+                        <button id="effect-invert" class="effect-btn">🔄 Invert</button>
+                        <button id="effect-flip" class="effect-btn">↔️ Flip</button>
+                        <button id="effect-reverse" class="effect-btn">⏪ Reverse</button>
+                        <button id="effect-speed" class="effect-btn">⚡ 2x Speed</button>
+                    </div>
+                    
+                    <div class="speed-control">
+                        <label>Playback Speed</label>
+                        <input type="range" id="video-speed" min="0.25" max="3" value="1" step="0.25">
+                        <span id="speed-display">1x</span>
+                    </div>
+                </div>
+
+                <div class="video-upload">
+                    <h3>Quick Upload</h3>
+                    <input type="file" id="video-file" accept="video/*,image/gif" style="display: none;">
+                    <input type="url" id="video-url" placeholder="Video URL...">
+                    <div class="upload-actions">
+                        <button id="upload-file" class="action-btn">📁 Upload File</button>
+                        <button id="load-url" class="action-btn">🔗 Load URL</button>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Bottom Section: Scenes -->
+        <section class="scenes-section">
+            <h2>🎬 Scenes</h2>
+            <div class="scenes-grid">
+                <div class="scene-slot" data-scene="1">
+                    <div class="scene-preview">Scene 1</div>
+                    <div class="scene-controls">
+                        <button class="scene-save">💾</button>
+                        <button class="scene-load">▶️</button>
+                    </div>
+                </div>
+                <div class="scene-slot" data-scene="2">
+                    <div class="scene-preview">Scene 2</div>
+                    <div class="scene-controls">
+                        <button class="scene-save">💾</button>
+                        <button class="scene-load">▶️</button>
+                    </div>
+                </div>
+                <div class="scene-slot" data-scene="3">
+                    <div class="scene-preview">Scene 3</div>
+                    <div class="scene-controls">
+                        <button class="scene-save">💾</button>
+                        <button class="scene-load">▶️</button>
+                    </div>
+                </div>
+                <div class="scene-slot" data-scene="4">
+                    <div class="scene-preview">Scene 4</div>
+                    <div class="scene-controls">
+                        <button class="scene-save">💾</button>
+                        <button class="scene-load">▶️</button>
+                    </div>
+                </div>
+                <div class="scene-slot" data-scene="5">
+                    <div class="scene-preview">Scene 5</div>
+                    <div class="scene-controls">
+                        <button class="scene-save">💾</button>
+                        <button class="scene-load">▶️</button>
+                    </div>
+                </div>
+                <div class="scene-slot" data-scene="6">
+                    <div class="scene-preview">Scene 6</div>
+                    <div class="scene-controls">
+                        <button class="scene-save">💾</button>
+                        <button class="scene-load">▶️</button>
+                    </div>
+                </div>
+                <div class="scene-slot" data-scene="7">
+                    <div class="scene-preview">Scene 7</div>
+                    <div class="scene-controls">
+                        <button class="scene-save">💾</button>
+                        <button class="scene-load">▶️</button>
+                    </div>
+                </div>
+                <div class="scene-slot" data-scene="8">
+                    <div class="scene-preview">Scene 8</div>
+                    <div class="scene-controls">
+                        <button class="scene-save">💾</button>
+                        <button class="scene-load">▶️</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Connection Modal -->
+        <div id="connection-modal" class="modal">
+            <div class="modal-content">
+                <h2>🔗 Connect to Hydra Display</h2>
+                <p>Make sure your mobile device is on the same network</p>
+                <div class="connection-info">
+                    <div class="qr-code">
+                        <div id="qr-placeholder">[QR Code]</div>
+                        <p>Scan with mobile device</p>
+                    </div>
+                    <div class="manual-connection">
+                        <h3>Manual Connection:</h3>
+                        <p>Open mobile browser and go to:</p>
+                        <code id="mobile-url">http://localhost:8000/mobile.html</code>
+                        <button id="copy-url">📋 Copy URL</button>
+                    </div>
+                </div>
+                <button id="close-connection-modal" class="modal-close">✕</button>
+            </div>
+        </div>
+
+        <!-- Status Messages -->
+        <div id="status-messages"></div>
+    </div>
+
+    <script src="./js/control.js?v=2"></script>
+</body>
+</html>

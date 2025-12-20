@@ -1158,13 +1158,6 @@
                                 </div>
                                 <div class="push-top text-align-center">
                                     <button id="modal-open">⚙</button>
-
-                                    <div class="button-group button-radio-switch-group canvas-to-stream">
-                                        <div><button class="launch button-radio-switch" data-canvas-to-stream="1">D1</button></div>
-                                        <div><button class="launch on button-radio-switch" data-canvas-to-stream="mix">Mix</button></div>
-                                        <div><button class="launch button-radio-switch" data-canvas-to-stream="2">D2</button></div>
-                                    </div>
-                                    <button id="launch">Launch</button>
                                 </div>
                                 <div class="deck-2">
                                     <label class="heading">Presets</label>
@@ -2485,9 +2478,7 @@
             </div>
         </div>
         <video id="deck-1-video" style="display:none;" muted playsinline autoplay loop></video>
-        <video id="deck-1-stream" style="display:none;" playsinline autoplay></video>
         <video id="deck-2-video" style="display:none;" muted playsinline autoplay loop></video>
-        <video id="deck-2-stream" style="display:none;" playsinline autoplay></video>
     </div>
     <script src="./js/vendor/lodash-full-4.17.15.js"></script>
     <script src="./js/vendor/butterchurn.js"></script>
@@ -2513,6 +2504,7 @@
     <script src="./js/renderers/tapestryfract2/renderer.js"></script>
     <script src="./js/renderers/text/renderer.js"></script>
     <script src="./js/renderers/tunnel/renderer.js"></script>
+    <script src="./js/vendor/gif-parser.js"></script>
     <script src="./js/renderers/video/renderer.js"></script>
     <script src="./js/renderers/wave/renderer.js"></script>
     <script>

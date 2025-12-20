@@ -1005,6 +1005,25 @@ fieldset .heading,
     padding: 5px;
 }
 
+.youtube-url-input textarea {
+    height: 40px !important;
+    font-size: 12px;
+    background: #1a1a1a;
+    border: 1px solid #333;
+    color: #fff;
+    border-radius: 3px;
+    resize: none;
+}
+
+.youtube-url-input textarea:focus {
+    border-color: #ff0000;
+    outline: none;
+}
+
+.youtube-url-input textarea::placeholder {
+    color: #666;
+}
+
 .visual-settings input[type="file"] {
     width: 100%;
 }
@@ -1678,4 +1697,62 @@ body.assigning.selected [data-assignable] input[type=range]::-ms-thumb  {
     #audio-meter-container {
         display: none;
     }
+}
+
+/* Video Thumbnail Styles */
+.video-thumbnail-container {
+    position: relative;
+    margin-top: 8px;
+    width: 120px;
+    height: 68px;
+    border: 1px solid #333;
+    border-radius: 4px;
+    overflow: hidden;
+    background: #111;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.video-thumbnail {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+}
+
+.thumbnail-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    color: #888;
+    font-size: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    text-align: center;
+    padding: 4px;
+}
+
+.video-thumbnail-container.has-preview .thumbnail-overlay {
+    display: none;
+}
+
+.video-thumbnail-container.loading .thumbnail-overlay {
+    color: #4a90e2;
+}
+
+.video-thumbnail-container.error .thumbnail-overlay {
+    color: #e74c3c;
+}
+
+.video-thumbnail-container:hover {
+    border-color: #555;
+}
+
+.video-thumbnail-container.has-preview:hover {
+    border-color: #4a90e2;
 }
