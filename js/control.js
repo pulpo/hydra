@@ -719,6 +719,8 @@ class HydraController {
          
          // Use currently selected slot, or default to slot 0
          const slot = this.state.video.currentSlot || 0;
+         console.log('📤 Loading URL with currentSlot:', this.state.video.currentSlot, 'final slot:', slot);
+         console.log('📤 Full message:', { type: 'video', action: 'load_url', url: url, slot: slot });
          
          this.send({
              type: 'video',
