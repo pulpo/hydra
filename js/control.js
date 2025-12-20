@@ -435,9 +435,9 @@ class HydraController {
     }
     
     generateConnectionInfo() {
-         const host = window.location.hostname;
-         const port = window.location.port || '8080';
-         const mobileUrl = `http://${host}:${port}/mobile.html`;
+        const host = window.location.hostname;
+        const port = window.location.port || '8080';
+        const mobileUrl = `http://${host}:${port}/mobile.html`;
         
         document.getElementById('mobile-url').textContent = mobileUrl;
         
