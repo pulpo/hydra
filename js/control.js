@@ -366,14 +366,15 @@ class HydraController {
             }
         });
         
-        // Video slots
-        document.querySelectorAll('.video-slot').forEach(slot => {
-            const slotNum = slot.dataset.slot;
-            
-            slot.querySelector('.slot-play').addEventListener('click', () => {
-                this.selectVideoSlot(parseInt(slotNum));
-            });
-        });
+         // Video slots
+         document.querySelectorAll('.video-slot').forEach(slot => {
+             const slotNum = parseInt(slot.dataset.slot);
+             
+             // Click anywhere on the slot to select it
+             slot.addEventListener('click', () => {
+                 this.selectVideoSlot(slotNum);
+             });
+         });
     }
 
     loadPresetByName(presetName) {
@@ -661,34 +662,33 @@ class HydraController {
         this.send(message);
     }
     
-    updateVideoSlotPreview(slotIndex, url, name) {
-        console.log('🖼️ Updating preview for slot', slotIndex, ':', { url, name });
-        const slots = document.querySelectorAll('.video-slot');
-        const slot = slots[slotIndex];
-        
-        if (!slot) {
-            console.warn('⚠️ Slot not found:', slotIndex);
-            return;
-        }
-        
-        const preview = slot.querySelector('.slot-preview');
-        const label = slot.querySelector('.slot-label');
-        
-        if (preview) {
-            // Set the GIF/video URL as background
-            preview.style.backgroundImage = `url(${url})`;
-            preview.style.backgroundSize = 'cover';
-            preview.style.backgroundPosition = 'center';
-        }
-        
-        if (label) {
-            const shortName = name.length > 10 ? name.substring(0, 10) + '...' : name;
-            label.textContent = shortName;
-        }
-        
-        // Mark slot as loaded
-        slot.classList.add('loaded');
-    }
+     updateVideoSlotPreview(slotIndex, url, name) {
+         console.log('🖼️ Updating preview for slot', slotIndex, ':', { url, name });
+         const slots = document.querySelectorAll('.video-slot');
+         const slot = slots[slotIndex];
+         
+         if (!slot) {
+             console.warn('⚠️ Slot not found:', slotIndex);
+             return;
+         }
+         
+         const preview = slot.querySelector('.slot-preview');
+         const label = slot.querySelector('.slot-label');
+         
+         if (preview) {
+             // Set the GIF/video URL as image src (allows animation)
+             preview.src = url;
+             preview.alt = name;
+         }
+         
+         if (label) {
+             const shortName = name.length > 10 ? name.substring(0, 10) + '...' : name;
+             label.textContent = shortName;
+         }
+         
+         // Mark slot as loaded
+         slot.classList.add('loaded');
+     }
     
     uploadVideoFile(file) {
         if (!file) return;
@@ -707,16 +707,20 @@ class HydraController {
         });
     }
     
-    loadVideoURL(url) {
-        this.showStatus(`Loading video from URL...`, 'info');
-        document.getElementById('video-url').value = '';
-        
-        this.send({
-            type: 'video',
-            action: 'load_url',
-            url: url
-        });
-    }
+     loadVideoURL(url) {
+         this.showStatus(`Loading video from URL...`, 'info');
+         document.getElementById('video-url').value = '';
+         
+         // Use currently selected slot, or default to slot 0
+         const slot = this.state.video.currentSlot || 0;
+         
+         this.send({
+             type: 'video',
+             action: 'load_url',
+             url: url,
+             slot: slot
+         });
+     }
     
     saveScene(sceneNum) {
         this.state.scenes[sceneNum] = JSON.parse(JSON.stringify(this.state));
@@ -819,11 +823,11 @@ class HydraController {
         this.updateVideoSlots();
     }
     
-    updateVideoSlots() {
-        document.querySelectorAll('.video-slot').forEach((slot, index) => {
-            slot.classList.toggle('active', this.state.video.currentSlot === index + 1);
-        });
-    }
+     updateVideoSlots() {
+         document.querySelectorAll('.video-slot').forEach((slot, index) => {
+             slot.classList.toggle('active', this.state.video.currentSlot === index);
+         });
+     }
     
     updateBPMDisplay() {
         document.getElementById('bpm-counter').textContent = this.state.bpm.value;

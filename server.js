@@ -216,17 +216,36 @@ function handleControlMessage(clientId, message) {
             }));
             break;
             
-        case MessageTypes.CROSSFADER:
-        case MessageTypes.PRESET:
-        case MessageTypes.VIDEO:
-        case MessageTypes.EFFECT:
-        case MessageTypes.EMERGENCY:
-        case MessageTypes.SCENE:
-        case 'mic_sensitivity':
-        case 'blend_mode':
-            // Forward control messages to displays
-            broadcastToDisplays(message);
-            break;
+         case MessageTypes.CROSSFADER:
+         case MessageTypes.PRESET:
+         case MessageTypes.EFFECT:
+         case MessageTypes.EMERGENCY:
+         case MessageTypes.SCENE:
+         case 'mic_sensitivity':
+         case 'blend_mode':
+             // Forward control messages to displays
+             broadcastToDisplays(message);
+             break;
+             
+         case MessageTypes.VIDEO:
+             // Handle video messages
+             if (message.action === 'load_url') {
+                 // Extract filename or use URL as name
+                 const urlParts = message.url.split('/');
+                 const filename = urlParts[urlParts.length - 1].split('?')[0] || 'video';
+                 
+                 // Send preview update back to control panel
+                 client.ws.send(JSON.stringify({
+                     type: 'video_slot_update',
+                     slot: message.slot || 0,
+                     url: message.url,
+                     name: filename,
+                     timestamp: Date.now()
+                 }));
+             }
+             // Forward video messages to displays
+             broadcastToDisplays(message);
+             break;
             
         case MessageTypes.STATUS:
         case 'preset_list':
