@@ -370,8 +370,14 @@ class HydraController {
          document.querySelectorAll('.video-slot').forEach(slot => {
              const slotNum = parseInt(slot.dataset.slot);
              
-             // Click anywhere on the slot to select it
+             // Click anywhere on the slot to select it (desktop)
              slot.addEventListener('click', () => {
+                 this.selectVideoSlot(slotNum);
+             });
+             
+             // Touch events for mobile/tactile devices
+             slot.addEventListener('touchend', (e) => {
+                 e.preventDefault();
                  this.selectVideoSlot(slotNum);
              });
          });
