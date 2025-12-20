@@ -232,7 +232,7 @@ function handleControlMessage(clientId, message) {
              if (message.action === 'load_url') {
                  // Extract filename or use URL as name
                  const urlParts = message.url.split('/');
-                 const filename = urlParts[urlParts.length - 1].split('?')[0] || 'video';
+                 const filename = urlParts[urlParts.length - 1].split(/[?#]/)[0] || 'video';
                  
                  // Send preview update back to control panel
                  client.ws.send(JSON.stringify({
