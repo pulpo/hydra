@@ -669,32 +669,32 @@ class HydraController {
     }
     
      updateVideoSlotPreview(slotIndex, url, name) {
-         console.log('🖼️ Updating preview for slot', slotIndex, ':', { url, name });
-         const slots = document.querySelectorAll('.video-slot');
-         const slot = slots[slotIndex];
-         
-         if (!slot) {
-             console.warn('⚠️ Slot not found:', slotIndex);
-             return;
-         }
-         
-         const preview = slot.querySelector('.slot-preview');
-         const label = slot.querySelector('.slot-label');
-         
-         if (preview) {
-             // Set the GIF/video URL as image src (allows animation)
-             preview.src = url;
-             preview.alt = name;
-         }
-         
-         if (label) {
-             const shortName = name.length > 10 ? name.substring(0, 10) + '...' : name;
-             label.textContent = shortName;
-         }
-         
-         // Mark slot as loaded
-         slot.classList.add('loaded');
-     }
+          console.log('🖼️ Updating preview for slot', slotIndex, ':', { url, name });
+          // Find slot by data-slot attribute instead of array index
+          const slot = document.querySelector(`.video-slot[data-slot="${slotIndex}"]`);
+          
+          if (!slot) {
+              console.warn('⚠️ Slot not found:', slotIndex);
+              return;
+          }
+          
+          const preview = slot.querySelector('.slot-preview');
+          const label = slot.querySelector('.slot-label');
+          
+          if (preview) {
+              // Set the GIF/video URL as image src (allows animation)
+              preview.src = url;
+              preview.alt = name;
+          }
+          
+          if (label) {
+              const shortName = name.length > 10 ? name.substring(0, 10) + '...' : name;
+              label.textContent = shortName;
+          }
+          
+          // Mark slot as loaded
+          slot.classList.add('loaded');
+      }
     
     uploadVideoFile(file) {
         if (!file) return;
