@@ -18,6 +18,43 @@
                     <span id="current-preset">Loading...</span>
                 </div>
             </div>
+            <!-- Mapping canvases are dynamically created by MappingController -->
+        </section>
+
+        <!-- Mapping Toolbar (shown when mapping mode is active) -->
+        <div class="mapping-toolbar hide" id="mapping-toolbar">
+            <button id="mapping-calibrate-btn" title="Toggle Calibration">Calibrate</button>
+            <div class="separator"></div>
+            <select id="mapping-grid-size" title="Grid Size">
+                <option value="2">2×2</option>
+                <option value="3" selected>3×3</option>
+                <option value="4">4×4</option>
+                <option value="5">5×5</option>
+            </select>
+            <div class="separator"></div>
+            <button id="mapping-reset-btn" title="Reset Grid">Reset</button>
+            <button id="mapping-save-btn" title="Save Preset">Save</button>
+            <button id="mapping-load-btn" title="Load Preset">Load</button>
+            <div class="separator"></div>
+            <button id="mapping-done-btn" title="Exit Mapping">Done</button>
+        </div>
+
+        <!-- Mapping status indicator -->
+        <div class="mapping-status" id="mapping-status">Mapping Active</div>
+
+        <!-- Mapping Preset Modal -->
+        <section id="mapping-preset-modal" class="mapping-preset-modal hide">
+            <div class="mapping-preset-content" style="position: relative;">
+                <button id="mapping-preset-close" class="mapping-preset-close">✕</button>
+                <h4 id="mapping-modal-title">Load Mapping Preset</h4>
+                <div id="mapping-preset-list" class="mapping-preset-list">
+                    <!-- Presets will be populated here -->
+                </div>
+                <div class="mapping-preset-actions" id="mapping-save-actions" style="display: none;">
+                    <input type="text" id="mapping-preset-name" placeholder="Preset name..." />
+                    <button id="mapping-preset-save-confirm">Save</button>
+                </div>
+            </div>
         </section>
 
         <!-- Panel de controles colapsable -->
@@ -53,6 +90,7 @@
                         <button id="random-preset" class="quick-btn" title="Random Preset">🎲</button>
                         <button id="auto-mode" class="quick-btn" title="Auto Mode">⏯️</button>
                         <button id="manage-presets" class="quick-btn" title="Manage Presets">⚙️</button>
+                        <button id="mapping-toggle-btn" class="quick-btn" title="Projection Mapping">🎯</button>
                     </div>
                 </div>
             </div>
@@ -210,6 +248,7 @@
     <script src="./js/vendor/butterchurnPresets.min.js"></script>
     <script src="./js/vendor/butterchurnPresetsExtra.min.js"></script>
     <script src="./js/vendor/gif-parser.js"></script>
-    <script src="./js/mobile-hydra.js?v=2"></script>
+    <script src="./js/mapping.js"></script>
+    <script src="./js/mobile-hydra.js?v=3"></script>
 </body>
 </html>
