@@ -228,9 +228,13 @@ class MappingController {
         
         this.enabled = true;
         
-        // Show mapping canvas first so getBoundingClientRect works
+        // Show mapping canvas
         this.canvas.style.display = 'block';
-        this.sourceCanvas.style.display = 'none';
+        
+        // Hide source canvas visually but keep it rendering
+        // Using visibility:hidden keeps it in the render tree so we can read from it
+        this.sourceCanvas.style.visibility = 'hidden';
+        this.sourceCanvas.style.position = 'absolute';
         
         // Resize after making visible
         requestAnimationFrame(() => {
@@ -248,9 +252,13 @@ class MappingController {
         this.enabled = false;
         this.calibrating = false;
         
+        // Hide mapping canvases
         this.canvas.style.display = 'none';
         this.overlayCanvas.style.display = 'none';
-        this.sourceCanvas.style.display = 'block';
+        
+        // Restore source canvas visibility
+        this.sourceCanvas.style.visibility = 'visible';
+        this.sourceCanvas.style.position = '';
         
         this.removeEventListeners();
         
