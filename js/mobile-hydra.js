@@ -664,37 +664,54 @@ class MobileHydra {
         const mappingSaveActions = document.getElementById('mapping-save-actions');
         const mappingModalTitle = document.getElementById('mapping-modal-title');
         
-        // Toggle mapping mode
+        // Helper to update all UI states
+        const updateMappingUI = () => {
+            const enabled = this.mappingController.enabled;
+            const calibrating = this.mappingController.calibrating;
+            
+            // Update toggle button
+            mappingToggleBtn.classList.toggle('active', enabled && !calibrating);
+            mappingToggleBtn.classList.toggle('calibrating', calibrating);
+            
+            // Update toolbar visibility - show when mapping is enabled
+            mappingToolbar.classList.toggle('hide', !enabled);
+            
+            // Update calibrate button
+            mappingCalibrateBtn.classList.toggle('calibrating', calibrating);
+            mappingCalibrateBtn.textContent = calibrating ? 'Done Calibrating' : 'Calibrate';
+            
+            // Update status indicator
+            mappingStatus.classList.toggle('active', enabled);
+            mappingStatus.classList.toggle('calibrating', calibrating);
+            mappingStatus.textContent = calibrating ? 'Calibrating...' : (enabled ? 'Mapping Active' : '');
+        };
+        
+        // Toggle mapping mode (🎯 button)
+        // - If mapping is off: enable mapping + start calibration
+        // - If mapping is on + calibrating: stop calibration (keep mapping active)
+        // - If mapping is on + not calibrating: disable mapping entirely
         if (mappingToggleBtn) {
             mappingToggleBtn.addEventListener('click', () => {
-                const enabled = this.mappingController.toggle();
-                mappingToggleBtn.classList.toggle('active', enabled);
-                mappingToolbar.classList.toggle('hide', !enabled);
-                mappingStatus.classList.toggle('active', enabled);
-                
-                if (enabled) {
-                    // Auto-start calibration when enabling
+                if (!this.mappingController.enabled) {
+                    // Turn on mapping and start calibration
+                    this.mappingController.enable();
                     this.mappingController.startCalibration();
-                    mappingCalibrateBtn.classList.add('calibrating');
-                    mappingCalibrateBtn.textContent = 'Done Calibrating';
-                    mappingStatus.classList.add('calibrating');
-                    mappingStatus.textContent = 'Calibrating...';
+                } else if (this.mappingController.calibrating) {
+                    // Stop calibration but keep mapping active
+                    this.mappingController.stopCalibration();
                 } else {
-                    mappingCalibrateBtn.classList.remove('calibrating');
-                    mappingCalibrateBtn.textContent = 'Calibrate';
-                    mappingStatus.classList.remove('calibrating');
+                    // Mapping is on but not calibrating - disable entirely
+                    this.mappingController.disable();
                 }
+                updateMappingUI();
             });
         }
         
-        // Toggle calibration
+        // Toggle calibration (Calibrate button in toolbar)
         if (mappingCalibrateBtn) {
             mappingCalibrateBtn.addEventListener('click', () => {
-                const calibrating = this.mappingController.toggleCalibration();
-                mappingCalibrateBtn.classList.toggle('calibrating', calibrating);
-                mappingCalibrateBtn.textContent = calibrating ? 'Done Calibrating' : 'Calibrate';
-                mappingStatus.classList.toggle('calibrating', calibrating);
-                mappingStatus.textContent = calibrating ? 'Calibrating...' : 'Mapping Active';
+                this.mappingController.toggleCalibration();
+                updateMappingUI();
             });
         }
         
@@ -711,6 +728,11 @@ class MobileHydra {
             mappingResetBtn.addEventListener('click', () => {
                 if (confirm('Reset grid to default rectangle?')) {
                     this.mappingController.resetGrid();
+                    // Re-enter calibration to show the reset grid
+                    if (!this.mappingController.calibrating) {
+                        this.mappingController.startCalibration();
+                        updateMappingUI();
+                    }
                 }
             });
         }
@@ -756,15 +778,11 @@ class MobileHydra {
             });
         }
         
-        // Done button - exit mapping mode
+        // Done button - exit mapping mode entirely
         if (mappingDoneBtn) {
             mappingDoneBtn.addEventListener('click', () => {
                 this.mappingController.disable();
-                mappingToggleBtn.classList.remove('active');
-                mappingToolbar.classList.add('hide');
-                mappingStatus.classList.remove('active', 'calibrating');
-                mappingCalibrateBtn.classList.remove('calibrating');
-                mappingCalibrateBtn.textContent = 'Calibrate';
+                updateMappingUI();
             });
         }
         
