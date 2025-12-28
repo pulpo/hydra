@@ -673,14 +673,14 @@ class MobileHydra {
             mappingToggleBtn.classList.toggle('active', enabled && !calibrating);
             mappingToggleBtn.classList.toggle('calibrating', calibrating);
             
-            // Update toolbar visibility - show when mapping is enabled
-            mappingToolbar.classList.toggle('hide', !enabled);
+            // Update toolbar visibility - only show when calibrating
+            mappingToolbar.classList.toggle('hide', !calibrating);
             
             // Update calibrate button
             mappingCalibrateBtn.classList.toggle('calibrating', calibrating);
             mappingCalibrateBtn.textContent = calibrating ? 'Done Calibrating' : 'Calibrate';
             
-            // Update status indicator
+            // Update status indicator - show when mapping is active (even without calibrating)
             mappingStatus.classList.toggle('active', enabled);
             mappingStatus.classList.toggle('calibrating', calibrating);
             mappingStatus.textContent = calibrating ? 'Calibrating...' : (enabled ? 'Mapping Active' : '');
