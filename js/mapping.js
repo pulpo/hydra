@@ -14,6 +14,7 @@ class MappingController {
         // Grid configuration
         this.gridSize = options.gridSize || { rows: 3, cols: 3 };
         this.controlPoints = [];
+        this.blockedCells = []; // 2D array tracking which cells are blacked out
         
         // Interaction state
         this.selectedPoint = null;
@@ -210,6 +211,55 @@ class MappingController {
         }
         
         console.log(`Grid reset to ${cols}x${rows}`);
+        
+        // Initialize blocked cells (all visible by default)
+        this.initBlockedCells();
+    }
+    
+    /**
+     * Initialize blocked cells array with all cells visible (not blocked)
+     * Grid has (rows) x (cols) cells, where rows/cols refer to number of quads
+     */
+    initBlockedCells() {
+        const { rows, cols } = this.gridSize;
+        this.blockedCells = [];
+        
+        for (let row = 0; row < rows; row++) {
+            this.blockedCells[row] = [];
+            for (let col = 0; col < cols; col++) {
+                this.blockedCells[row][col] = false;
+            }
+        }
+        
+        console.log(`Blocked cells initialized: ${rows}x${cols} cells, all visible`);
+    }
+    
+    /**
+     * Toggle the blocked state of a cell
+     */
+    toggleCellBlocked(row, col) {
+        if (row >= 0 && row < this.gridSize.rows && 
+            col >= 0 && col < this.gridSize.cols) {
+            this.blockedCells[row][col] = !this.blockedCells[row][col];
+            console.log(`Cell [${row}][${col}] blocked: ${this.blockedCells[row][col]}`);
+            
+            if (this.calibrating) {
+                this.drawOverlay();
+            }
+            
+            return this.blockedCells[row][col];
+        }
+        return null;
+    }
+    
+    /**
+     * Check if a cell is blocked
+     */
+    isCellBlocked(row, col) {
+        if (this.blockedCells[row] && this.blockedCells[row][col] !== undefined) {
+            return this.blockedCells[row][col];
+        }
+        return false;
     }
     
     /**
@@ -426,6 +476,58 @@ class MappingController {
         return nearest;
     }
     
+    /**
+     * Find which cell (quad) contains the given point
+     * Uses cross-product method for point-in-quad detection
+     * Returns { row, col } or null if point is outside all cells
+     */
+    hitTestCell(x, y) {
+        const { rows, cols } = this.gridSize;
+        
+        for (let row = 0; row < rows; row++) {
+            for (let col = 0; col < cols; col++) {
+                // Get the four corners of this quad in pixel coordinates
+                const tl = this.normalizedToPixels(this.controlPoints[row][col]);
+                const tr = this.normalizedToPixels(this.controlPoints[row][col + 1]);
+                const br = this.normalizedToPixels(this.controlPoints[row + 1][col + 1]);
+                const bl = this.normalizedToPixels(this.controlPoints[row + 1][col]);
+                
+                // Check if point is inside this quad using cross-product method
+                if (this.isPointInQuad(x, y, tl, tr, br, bl)) {
+                    return { row, col };
+                }
+            }
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Check if a point is inside a quadrilateral using cross-product method
+     * Points should be in clockwise or counter-clockwise order: tl, tr, br, bl
+     */
+    isPointInQuad(px, py, p1, p2, p3, p4) {
+        // Check the sign of cross products for each edge
+        // If all have the same sign, point is inside
+        const d1 = this.crossProductSign(px, py, p1.x, p1.y, p2.x, p2.y);
+        const d2 = this.crossProductSign(px, py, p2.x, p2.y, p3.x, p3.y);
+        const d3 = this.crossProductSign(px, py, p3.x, p3.y, p4.x, p4.y);
+        const d4 = this.crossProductSign(px, py, p4.x, p4.y, p1.x, p1.y);
+        
+        const hasNeg = (d1 < 0) || (d2 < 0) || (d3 < 0) || (d4 < 0);
+        const hasPos = (d1 > 0) || (d2 > 0) || (d3 > 0) || (d4 > 0);
+        
+        // Point is inside if all cross products have the same sign
+        return !(hasNeg && hasPos);
+    }
+    
+    /**
+     * Calculate the sign of cross product (p1 - p) x (p2 - p)
+     */
+    crossProductSign(px, py, x1, y1, x2, y2) {
+        return (x1 - px) * (y2 - py) - (x2 - px) * (y1 - py);
+    }
+    
     onPointerDown(e) {
         e.preventDefault();
         
@@ -433,9 +535,11 @@ class MappingController {
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
         
+        // First, check if a control point was clicked
         const hit = this.hitTest(x, y);
         
         if (hit) {
+            // Clicked on a control point - start dragging
             this.selectedPoint = hit;
             this.isDragging = true;
             
@@ -448,6 +552,13 @@ class MappingController {
             
             this.overlayCanvas.setPointerCapture(e.pointerId);
             this.drawOverlay();
+        } else {
+            // No control point hit - check if a cell was clicked to toggle blackout
+            const cellHit = this.hitTestCell(x, y);
+            
+            if (cellHit) {
+                this.toggleCellBlocked(cellHit.row, cellHit.col);
+            }
         }
     }
     
@@ -530,6 +641,45 @@ class MappingController {
             ctx.stroke();
         }
         
+        // Draw blocked cells with semi-transparent overlay and X pattern
+        for (let row = 0; row < this.gridSize.rows; row++) {
+            for (let col = 0; col < this.gridSize.cols; col++) {
+                if (this.isCellBlocked(row, col)) {
+                    // Get the four corners of this cell
+                    const tl = this.normalizedToPixels(this.controlPoints[row][col]);
+                    const tr = this.normalizedToPixels(this.controlPoints[row][col + 1]);
+                    const br = this.normalizedToPixels(this.controlPoints[row + 1][col + 1]);
+                    const bl = this.normalizedToPixels(this.controlPoints[row + 1][col]);
+                    
+                    // Draw semi-transparent black fill
+                    ctx.beginPath();
+                    ctx.moveTo(tl.x, tl.y);
+                    ctx.lineTo(tr.x, tr.y);
+                    ctx.lineTo(br.x, br.y);
+                    ctx.lineTo(bl.x, bl.y);
+                    ctx.closePath();
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+                    ctx.fill();
+                    
+                    // Draw X pattern for visibility
+                    ctx.strokeStyle = 'rgba(255, 50, 50, 0.8)';
+                    ctx.lineWidth = 2;
+                    
+                    // Diagonal line 1: TL to BR
+                    ctx.beginPath();
+                    ctx.moveTo(tl.x, tl.y);
+                    ctx.lineTo(br.x, br.y);
+                    ctx.stroke();
+                    
+                    // Diagonal line 2: TR to BL
+                    ctx.beginPath();
+                    ctx.moveTo(tr.x, tr.y);
+                    ctx.lineTo(bl.x, bl.y);
+                    ctx.stroke();
+                }
+            }
+        }
+        
         // Draw control points
         for (let row = 0; row <= this.gridSize.rows; row++) {
             if (!this.controlPoints[row]) {
@@ -599,6 +749,11 @@ class MappingController {
         
         for (let row = 0; row < rows; row++) {
             for (let col = 0; col < cols; col++) {
+                // Skip blocked cells - they won't render any content
+                if (this.isCellBlocked(row, col)) {
+                    continue;
+                }
+                
                 // Get the four corners of this quad
                 const tl = this.controlPoints[row][col];
                 const tr = this.controlPoints[row][col + 1];
@@ -671,9 +826,9 @@ class MappingController {
         gl.bindTexture(gl.TEXTURE_2D, this.texture);
         gl.uniform1i(this.textureLocation, 0);
         
-        // Draw
-        const triangleCount = this.gridSize.rows * this.gridSize.cols * 2;
-        gl.drawArrays(gl.TRIANGLES, 0, triangleCount * 3);
+        // Draw - vertex count is positions.length / 2 (each vertex has x,y)
+        const vertexCount = positions.length / 2;
+        gl.drawArrays(gl.TRIANGLES, 0, vertexCount);
         
         // Redraw overlay if calibrating
         if (this.calibrating) {
@@ -694,6 +849,7 @@ class MappingController {
         presets[name] = {
             gridSize: { ...this.gridSize },
             controlPoints: JSON.parse(JSON.stringify(this.controlPoints)),
+            blockedCells: JSON.parse(JSON.stringify(this.blockedCells)),
             created: Date.now()
         };
         
@@ -717,6 +873,13 @@ class MappingController {
         
         this.gridSize = { ...preset.gridSize };
         this.controlPoints = JSON.parse(JSON.stringify(preset.controlPoints));
+        
+        // Load blocked cells, or initialize if not present (for old presets)
+        if (preset.blockedCells) {
+            this.blockedCells = JSON.parse(JSON.stringify(preset.blockedCells));
+        } else {
+            this.initBlockedCells();
+        }
         
         console.log(`Mapping preset loaded: ${name}`);
         
@@ -787,6 +950,7 @@ class MappingController {
         return JSON.stringify({
             gridSize: this.gridSize,
             controlPoints: this.controlPoints,
+            blockedCells: this.blockedCells,
             exported: Date.now()
         }, null, 2);
     }
@@ -801,6 +965,13 @@ class MappingController {
             if (data.gridSize && data.controlPoints) {
                 this.gridSize = data.gridSize;
                 this.controlPoints = data.controlPoints;
+                
+                // Import blocked cells, or initialize if not present
+                if (data.blockedCells) {
+                    this.blockedCells = data.blockedCells;
+                } else {
+                    this.initBlockedCells();
+                }
                 
                 if (this.calibrating) {
                     this.drawOverlay();
