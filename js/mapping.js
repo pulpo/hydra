@@ -447,6 +447,11 @@ class MappingController {
         if (this.gl) {
             this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
         }
+        
+        // Redraw overlay after resize if calibrating (resize clears the canvas)
+        if (this.calibrating) {
+            this.drawOverlay();
+        }
     }
     
     /**
