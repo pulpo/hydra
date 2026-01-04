@@ -821,8 +821,9 @@ class MappingController {
         
         const gl = this.gl;
         
-        // Resize if needed
-        const rect = this.sourceCanvas.getBoundingClientRect();
+        // Resize if needed - use parent dimensions (consistent with resizeCanvases)
+        const parent = this.sourceCanvas.parentElement;
+        const rect = parent.getBoundingClientRect();
         if (this.canvas.width !== rect.width * (window.devicePixelRatio || 1) ||
             this.canvas.height !== rect.height * (window.devicePixelRatio || 1)) {
             this.resizeCanvases();
