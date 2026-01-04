@@ -5,6 +5,12 @@
  * visualizations onto arbitrary surfaces.
  */
 
+// Z-index constants for consistent layering
+const MAPPING_Z_INDEX = {
+    CANVAS: 5,      // WebGL canvas for warped output
+    OVERLAY: 100    // Calibration overlay UI
+};
+
 class MappingController {
     constructor(sourceCanvas, options = {}) {
         this.sourceCanvas = sourceCanvas;
@@ -37,6 +43,13 @@ class MappingController {
         this.pointColorSelected = options.pointColorSelected || 'rgba(255, 100, 0, 1)';
         this.gridLineColor = options.gridLineColor || 'rgba(255, 255, 255, 0.6)';
         
+        // Store original source canvas styles for restoration
+        this.originalSourceStyles = null;
+        
+        // Dirty flag for mesh rebuilding optimization
+        this.isMeshDirty = true;
+        this.cachedMesh = null;
+        
         // Bind methods
         this.onPointerDown = this.onPointerDown.bind(this);
         this.onPointerMove = this.onPointerMove.bind(this);
@@ -57,7 +70,7 @@ class MappingController {
             width: 100%;
             height: 100%;
             display: none;
-            z-index: 5;
+            z-index: ${MAPPING_Z_INDEX.CANVAS};
         `;
         
         // Create overlay canvas for calibration UI
@@ -70,25 +83,23 @@ class MappingController {
             width: 100%;
             height: 100%;
             display: none;
-            z-index: 100;
+            z-index: ${MAPPING_Z_INDEX.OVERLAY};
             pointer-events: none;
         `;
         
         // Insert canvases after source canvas
         const parent = this.sourceCanvas.parentElement;
         
-        // Ensure parent has position for absolute children
+        // Warn if parent doesn't have positioning for absolute children
         const parentStyle = window.getComputedStyle(parent);
         if (parentStyle.position === 'static') {
-            parent.style.position = 'relative';
+            console.warn('MappingController: The parent element has "position: static". For correct layering, it should be set to "relative", "absolute", or "fixed".');
         }
         
         parent.appendChild(this.canvas);
         parent.appendChild(this.overlayCanvas);
         
         this.overlayCtx = this.overlayCanvas.getContext('2d');
-        
-        console.log('Mapping: Canvases appended to', parent.id || parent.tagName);
         
         // Initialize WebGL
         this.initWebGL();
@@ -122,8 +133,8 @@ class MappingController {
             varying vec2 v_texCoord;
             
             void main() {
-                // Convert from pixel coordinates to clip space (-1 to 1)
-                vec2 clipSpace = (a_position / vec2(1.0, 1.0)) * 2.0 - 1.0;
+                // Convert from normalized coordinates (0-1) to clip space (-1 to 1)
+                vec2 clipSpace = a_position * 2.0 - 1.0;
                 gl_Position = vec4(clipSpace * vec2(1, -1), 0, 1);
                 v_texCoord = a_texCoord;
             }
@@ -174,7 +185,7 @@ class MappingController {
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
         
-        console.log('Mapping WebGL initialized successfully');
+
     }
     
     compileShader(type, source) {
@@ -210,7 +221,8 @@ class MappingController {
             }
         }
         
-        console.log(`Grid reset to ${cols}x${rows}`);
+        // Mark mesh as dirty
+        this.isMeshDirty = true;
         
         // Initialize blocked cells (all visible by default)
         this.initBlockedCells();
@@ -231,7 +243,7 @@ class MappingController {
             }
         }
         
-        console.log(`Blocked cells initialized: ${rows}x${cols} cells, all visible`);
+
     }
     
     /**
@@ -241,7 +253,9 @@ class MappingController {
         if (row >= 0 && row < this.gridSize.rows && 
             col >= 0 && col < this.gridSize.cols) {
             this.blockedCells[row][col] = !this.blockedCells[row][col];
-            console.log(`Cell [${row}][${col}] blocked: ${this.blockedCells[row][col]}`);
+            
+            // Mark mesh as dirty since blocked cells changed
+            this.isMeshDirty = true;
             
             if (this.calibrating) {
                 this.drawOverlay();
@@ -281,6 +295,12 @@ class MappingController {
         // Show mapping canvas
         this.canvas.style.display = 'block';
         
+        // Save original source canvas styles before modifying
+        this.originalSourceStyles = {
+            visibility: this.sourceCanvas.style.visibility,
+            position: this.sourceCanvas.style.position
+        };
+        
         // Hide source canvas visually but keep it rendering
         // Using visibility:hidden keeps it in the render tree so we can read from it
         this.sourceCanvas.style.visibility = 'hidden';
@@ -289,7 +309,6 @@ class MappingController {
         // Resize after making visible
         requestAnimationFrame(() => {
             this.resizeCanvases();
-            console.log('Mapping enabled, canvas size:', this.canvas.width, 'x', this.canvas.height);
         });
     }
     
@@ -306,13 +325,16 @@ class MappingController {
         this.canvas.style.display = 'none';
         this.overlayCanvas.style.display = 'none';
         
-        // Restore source canvas visibility
-        this.sourceCanvas.style.visibility = 'visible';
-        this.sourceCanvas.style.position = '';
+        // Restore source canvas visibility using saved original styles
+        if (this.originalSourceStyles) {
+            this.sourceCanvas.style.visibility = this.originalSourceStyles.visibility;
+            this.sourceCanvas.style.position = this.originalSourceStyles.position;
+        } else {
+            this.sourceCanvas.style.visibility = 'visible';
+            this.sourceCanvas.style.position = '';
+        }
         
         this.removeEventListeners();
-        
-        console.log('Mapping disabled');
     }
     
     /**
@@ -343,7 +365,7 @@ class MappingController {
         requestAnimationFrame(() => {
             this.resizeCanvases();
             this.drawOverlay();
-            console.log('Calibration started, overlay size:', this.overlayCanvas.width, 'x', this.overlayCanvas.height);
+
         });
     }
     
@@ -361,7 +383,7 @@ class MappingController {
         // Auto-save when exiting calibration
         this.saveLastPreset();
         
-        console.log('Calibration stopped');
+
     }
     
     /**
@@ -405,7 +427,7 @@ class MappingController {
             return;
         }
         
-        console.log('Mapping resizeCanvases:', rect.width, 'x', rect.height, 'DPR:', dpr);
+
         
         // Resize WebGL canvas
         this.canvas.width = rect.width * dpr;
@@ -429,38 +451,47 @@ class MappingController {
     
     /**
      * Convert normalized coordinates (0-1) to canvas pixels
+     * @param {Object} point - Point with x, y normalized coordinates
+     * @param {DOMRect} [rect] - Optional cached rect to avoid reflow
      */
-    normalizedToPixels(point) {
-        const rect = this.overlayCanvas.getBoundingClientRect();
+    normalizedToPixels(point, rect) {
+        const r = rect || this.overlayCanvas.getBoundingClientRect();
         return {
-            x: point.x * rect.width,
-            y: point.y * rect.height
+            x: point.x * r.width,
+            y: point.y * r.height
         };
     }
     
     /**
      * Convert canvas pixels to normalized coordinates (0-1)
+     * @param {number} x - X coordinate in pixels
+     * @param {number} y - Y coordinate in pixels
+     * @param {DOMRect} [rect] - Optional cached rect to avoid reflow
      */
-    pixelsToNormalized(x, y) {
-        const rect = this.overlayCanvas.getBoundingClientRect();
+    pixelsToNormalized(x, y, rect) {
+        const r = rect || this.overlayCanvas.getBoundingClientRect();
         return {
-            x: Math.max(0, Math.min(1, x / rect.width)),
-            y: Math.max(0, Math.min(1, y / rect.height))
+            x: Math.max(0, Math.min(1, x / r.width)),
+            y: Math.max(0, Math.min(1, y / r.height))
         };
     }
     
     /**
      * Find the control point nearest to the given position
+     * @param {number} x - X coordinate in pixels
+     * @param {number} y - Y coordinate in pixels
+     * @param {DOMRect} [rect] - Optional cached rect to avoid reflow
      */
-    hitTest(x, y) {
+    hitTest(x, y, rect) {
         const hitRadius = this.pointRadius * 1.5; // Slightly larger hit area
         let nearest = null;
         let nearestDist = Infinity;
+        const r = rect || this.overlayCanvas.getBoundingClientRect();
         
         for (let row = 0; row <= this.gridSize.rows; row++) {
             for (let col = 0; col <= this.gridSize.cols; col++) {
                 const point = this.controlPoints[row][col];
-                const pixelPoint = this.normalizedToPixels(point);
+                const pixelPoint = this.normalizedToPixels(point, r);
                 
                 const dx = pixelPoint.x - x;
                 const dy = pixelPoint.y - y;
@@ -480,17 +511,21 @@ class MappingController {
      * Find which cell (quad) contains the given point
      * Uses cross-product method for point-in-quad detection
      * Returns { row, col } or null if point is outside all cells
+     * @param {number} x - X coordinate in pixels
+     * @param {number} y - Y coordinate in pixels
+     * @param {DOMRect} [rect] - Optional cached rect to avoid reflow
      */
-    hitTestCell(x, y) {
+    hitTestCell(x, y, rect) {
         const { rows, cols } = this.gridSize;
+        const r = rect || this.overlayCanvas.getBoundingClientRect();
         
         for (let row = 0; row < rows; row++) {
             for (let col = 0; col < cols; col++) {
                 // Get the four corners of this quad in pixel coordinates
-                const tl = this.normalizedToPixels(this.controlPoints[row][col]);
-                const tr = this.normalizedToPixels(this.controlPoints[row][col + 1]);
-                const br = this.normalizedToPixels(this.controlPoints[row + 1][col + 1]);
-                const bl = this.normalizedToPixels(this.controlPoints[row + 1][col]);
+                const tl = this.normalizedToPixels(this.controlPoints[row][col], r);
+                const tr = this.normalizedToPixels(this.controlPoints[row][col + 1], r);
+                const br = this.normalizedToPixels(this.controlPoints[row + 1][col + 1], r);
+                const bl = this.normalizedToPixels(this.controlPoints[row + 1][col], r);
                 
                 // Check if point is inside this quad using cross-product method
                 if (this.isPointInQuad(x, y, tl, tr, br, bl)) {
@@ -535,8 +570,8 @@ class MappingController {
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
         
-        // First, check if a control point was clicked
-        const hit = this.hitTest(x, y);
+        // First, check if a control point was clicked (pass cached rect)
+        const hit = this.hitTest(x, y, rect);
         
         if (hit) {
             // Clicked on a control point - start dragging
@@ -544,7 +579,7 @@ class MappingController {
             this.isDragging = true;
             
             const point = this.controlPoints[hit.row][hit.col];
-            const pixelPoint = this.normalizedToPixels(point);
+            const pixelPoint = this.normalizedToPixels(point, rect);
             this.dragOffset = {
                 x: pixelPoint.x - x,
                 y: pixelPoint.y - y
@@ -553,8 +588,8 @@ class MappingController {
             this.overlayCanvas.setPointerCapture(e.pointerId);
             this.drawOverlay();
         } else {
-            // No control point hit - check if a cell was clicked to toggle blackout
-            const cellHit = this.hitTestCell(x, y);
+            // No control point hit - check if a cell was clicked to toggle blackout (pass cached rect)
+            const cellHit = this.hitTestCell(x, y, rect);
             
             if (cellHit) {
                 this.toggleCellBlocked(cellHit.row, cellHit.col);
@@ -571,9 +606,12 @@ class MappingController {
         const x = e.clientX - rect.left + this.dragOffset.x;
         const y = e.clientY - rect.top + this.dragOffset.y;
         
-        const normalized = this.pixelsToNormalized(x, y);
+        const normalized = this.pixelsToNormalized(x, y, rect);
         
         this.controlPoints[this.selectedPoint.row][this.selectedPoint.col] = normalized;
+        
+        // Mark mesh as dirty since control points changed
+        this.isMeshDirty = true;
         
         this.drawOverlay();
     }
@@ -593,21 +631,15 @@ class MappingController {
         if (!this.calibrating) return;
         
         const ctx = this.overlayCtx;
+        // Cache rect once at the start to avoid multiple reflows
         const rect = this.overlayCanvas.getBoundingClientRect();
         
         // Validate we have valid dimensions
         if (rect.width === 0 || rect.height === 0) {
-            console.warn('Mapping drawOverlay: Canvas has zero dimensions');
             return;
         }
         
-        console.log('Drawing overlay, rect:', rect.width, 'x', rect.height, 'grid:', this.gridSize.rows, 'x', this.gridSize.cols);
-        
         ctx.clearRect(0, 0, rect.width, rect.height);
-        
-        // Debug: Draw a test rectangle to confirm canvas is working
-        ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
-        ctx.fillRect(10, 10, 50, 50);
         
         // Draw grid lines
         ctx.strokeStyle = this.gridLineColor;
@@ -617,7 +649,7 @@ class MappingController {
         for (let row = 0; row <= this.gridSize.rows; row++) {
             ctx.beginPath();
             for (let col = 0; col <= this.gridSize.cols; col++) {
-                const point = this.normalizedToPixels(this.controlPoints[row][col]);
+                const point = this.normalizedToPixels(this.controlPoints[row][col], rect);
                 if (col === 0) {
                     ctx.moveTo(point.x, point.y);
                 } else {
@@ -631,7 +663,7 @@ class MappingController {
         for (let col = 0; col <= this.gridSize.cols; col++) {
             ctx.beginPath();
             for (let row = 0; row <= this.gridSize.rows; row++) {
-                const point = this.normalizedToPixels(this.controlPoints[row][col]);
+                const point = this.normalizedToPixels(this.controlPoints[row][col], rect);
                 if (row === 0) {
                     ctx.moveTo(point.x, point.y);
                 } else {
@@ -646,10 +678,10 @@ class MappingController {
             for (let col = 0; col < this.gridSize.cols; col++) {
                 if (this.isCellBlocked(row, col)) {
                     // Get the four corners of this cell
-                    const tl = this.normalizedToPixels(this.controlPoints[row][col]);
-                    const tr = this.normalizedToPixels(this.controlPoints[row][col + 1]);
-                    const br = this.normalizedToPixels(this.controlPoints[row + 1][col + 1]);
-                    const bl = this.normalizedToPixels(this.controlPoints[row + 1][col]);
+                    const tl = this.normalizedToPixels(this.controlPoints[row][col], rect);
+                    const tr = this.normalizedToPixels(this.controlPoints[row][col + 1], rect);
+                    const br = this.normalizedToPixels(this.controlPoints[row + 1][col + 1], rect);
+                    const bl = this.normalizedToPixels(this.controlPoints[row + 1][col], rect);
                     
                     // Draw semi-transparent black fill
                     ctx.beginPath();
@@ -683,21 +715,17 @@ class MappingController {
         // Draw control points
         for (let row = 0; row <= this.gridSize.rows; row++) {
             if (!this.controlPoints[row]) {
-                console.warn('Mapping: Missing row', row);
                 continue;
             }
             for (let col = 0; col <= this.gridSize.cols; col++) {
                 if (!this.controlPoints[row][col]) {
-                    console.warn('Mapping: Missing point at', row, col);
                     continue;
                 }
                 
-                const point = this.normalizedToPixels(this.controlPoints[row][col]);
+                const point = this.normalizedToPixels(this.controlPoints[row][col], rect);
                 const isSelected = this.selectedPoint && 
                     this.selectedPoint.row === row && 
                     this.selectedPoint.col === col;
-                
-                console.log('Drawing point at', point.x.toFixed(0), point.y.toFixed(0), 'row:', row, 'col:', col);
                 
                 // Outer ring
                 ctx.beginPath();
@@ -799,8 +827,13 @@ class MappingController {
         gl.bindTexture(gl.TEXTURE_2D, this.texture);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.sourceCanvas);
         
-        // Build mesh
-        const { positions, texCoords } = this.buildMesh();
+        // Build mesh only when dirty (control points/blocked cells changed)
+        if (this.isMeshDirty || !this.cachedMesh) {
+            this.cachedMesh = this.buildMesh();
+            this.isMeshDirty = false;
+        }
+        
+        const { positions, texCoords } = this.cachedMesh;
         
         // Clear
         gl.clearColor(0, 0, 0, 1);
@@ -830,10 +863,8 @@ class MappingController {
         const vertexCount = positions.length / 2;
         gl.drawArrays(gl.TRIANGLES, 0, vertexCount);
         
-        // Redraw overlay if calibrating
-        if (this.calibrating) {
-            this.drawOverlay();
-        }
+        // Note: drawOverlay is NOT called here every frame
+        // It's only called when interacting (onPointerMove, onPointerDown, etc.)
     }
     
     // =========================================================================
@@ -854,7 +885,7 @@ class MappingController {
         };
         
         localStorage.setItem('hydra-mapping-presets', JSON.stringify(presets));
-        console.log(`Mapping preset saved: ${name}`);
+
         
         return true;
     }
@@ -867,7 +898,6 @@ class MappingController {
         const preset = presets[name];
         
         if (!preset) {
-            console.warn(`Mapping preset not found: ${name}`);
             return false;
         }
         
@@ -881,7 +911,8 @@ class MappingController {
             this.initBlockedCells();
         }
         
-        console.log(`Mapping preset loaded: ${name}`);
+        // Mark mesh as dirty since preset was loaded
+        this.isMeshDirty = true;
         
         if (this.calibrating) {
             this.drawOverlay();
@@ -899,7 +930,7 @@ class MappingController {
         if (presets[name]) {
             delete presets[name];
             localStorage.setItem('hydra-mapping-presets', JSON.stringify(presets));
-            console.log(`Mapping preset deleted: ${name}`);
+
             return true;
         }
         
@@ -973,11 +1004,13 @@ class MappingController {
                     this.initBlockedCells();
                 }
                 
+                // Mark mesh as dirty since mapping was imported
+                this.isMeshDirty = true;
+                
                 if (this.calibrating) {
                     this.drawOverlay();
                 }
                 
-                console.log('Mapping imported successfully');
                 return true;
             }
         } catch (error) {
@@ -1008,7 +1041,7 @@ class MappingController {
             this.gl.deleteProgram(this.program);
         }
         
-        console.log('MappingController destroyed');
+
     }
 }
 

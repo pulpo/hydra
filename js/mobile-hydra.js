@@ -723,17 +723,29 @@ class MobileHydra {
             });
         }
         
-        // Reset grid
+        // Reset grid - use modal instead of confirm()
         if (mappingResetBtn) {
             mappingResetBtn.addEventListener('click', () => {
-                if (confirm('Reset grid to default rectangle?')) {
+                // Use the mapping preset modal for confirmation
+                mappingModalTitle.textContent = 'Reset Grid?';
+                mappingPresetList.innerHTML = '<div style="text-align: center; color: #ccc; padding: 20px;">This will reset the grid to the default rectangle and clear all adjustments.</div>';
+                mappingSaveActions.classList.remove('hide');
+                mappingPresetName.style.display = 'none';
+                mappingPresetSaveConfirm.textContent = 'Reset';
+                mappingPresetSaveConfirm.onclick = () => {
                     this.mappingController.resetGrid();
                     // Re-enter calibration to show the reset grid
                     if (!this.mappingController.calibrating) {
                         this.mappingController.startCalibration();
                         updateMappingUI();
                     }
-                }
+                    mappingPresetModal.classList.add('hide');
+                    // Restore modal state
+                    mappingPresetName.style.display = '';
+                    mappingPresetSaveConfirm.textContent = 'Save';
+                    mappingPresetSaveConfirm.onclick = null;
+                };
+                mappingPresetModal.classList.remove('hide');
             });
         }
         
@@ -741,7 +753,7 @@ class MobileHydra {
         if (mappingSaveBtn) {
             mappingSaveBtn.addEventListener('click', () => {
                 mappingModalTitle.textContent = 'Save Mapping Preset';
-                mappingSaveActions.style.display = 'flex';
+                mappingSaveActions.classList.remove('hide');
                 mappingPresetName.value = '';
                 this.populateMappingPresetList(mappingPresetList, false);
                 mappingPresetModal.classList.remove('hide');
@@ -765,7 +777,7 @@ class MobileHydra {
         if (mappingLoadBtn) {
             mappingLoadBtn.addEventListener('click', () => {
                 mappingModalTitle.textContent = 'Load Mapping Preset';
-                mappingSaveActions.style.display = 'none';
+                mappingSaveActions.classList.add('hide');
                 this.populateMappingPresetList(mappingPresetList, true);
                 mappingPresetModal.classList.remove('hide');
             });
