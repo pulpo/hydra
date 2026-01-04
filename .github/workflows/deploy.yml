@@ -3,6 +3,7 @@ on:
   push:
     branches: 
       - 'feat/**'  # Deploy feat branches to staging
+      - 'subfeat/**'  # Deploy subfeat branches to staging
     paths:
       - 'js/**'
       - 'css/**'
