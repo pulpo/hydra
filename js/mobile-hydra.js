@@ -71,6 +71,9 @@ class MobileHydra {
         this.micSensitivity = 1.0; // Default to 1 (no change)
         this.micGainNode = null;
         
+        // Projection mapping
+        this.mappingController = null;
+        
         this.init();
     }
     
@@ -84,6 +87,7 @@ class MobileHydra {
             this.setupVideo();
             this.setupControls();
             this.setupGestures();
+            this.setupMapping();
             
             this.hideLoadingOverlay();
             this.startRender();
@@ -621,6 +625,227 @@ class MobileHydra {
                 e.preventDefault();
             }
         }, { passive: false });
+    }
+    
+    // =========================================================================
+    // Projection Mapping Setup
+    // =========================================================================
+    
+    setupMapping() {
+        // Check if MappingController is available
+        if (typeof MappingController === 'undefined') {
+            console.warn('MappingController not found, mapping feature disabled');
+            const mappingBtn = document.getElementById('mapping-toggle-btn');
+            if (mappingBtn) mappingBtn.style.display = 'none';
+            return;
+        }
+        
+        // Initialize mapping controller
+        this.mappingController = new MappingController(this.canvas, {
+            gridSize: { rows: 3, cols: 3 },
+            pointRadius: 12
+        });
+        
+        // UI Elements
+        const mappingToggleBtn = document.getElementById('mapping-toggle-btn');
+        const mappingToolbar = document.getElementById('mapping-toolbar');
+        const mappingStatus = document.getElementById('mapping-status');
+        const mappingCalibrateBtn = document.getElementById('mapping-calibrate-btn');
+        const mappingGridSize = document.getElementById('mapping-grid-size');
+        const mappingResetBtn = document.getElementById('mapping-reset-btn');
+        const mappingSaveBtn = document.getElementById('mapping-save-btn');
+        const mappingLoadBtn = document.getElementById('mapping-load-btn');
+        const mappingDoneBtn = document.getElementById('mapping-done-btn');
+        const mappingPresetModal = document.getElementById('mapping-preset-modal');
+        const mappingPresetClose = document.getElementById('mapping-preset-close');
+        const mappingPresetList = document.getElementById('mapping-preset-list');
+        const mappingPresetName = document.getElementById('mapping-preset-name');
+        const mappingPresetSaveConfirm = document.getElementById('mapping-preset-save-confirm');
+        const mappingSaveActions = document.getElementById('mapping-save-actions');
+        const mappingModalTitle = document.getElementById('mapping-modal-title');
+        
+        // Helper to update all UI states
+        const updateMappingUI = () => {
+            const enabled = this.mappingController.enabled;
+            const calibrating = this.mappingController.calibrating;
+            
+            // Update toggle button
+            mappingToggleBtn.classList.toggle('active', enabled && !calibrating);
+            mappingToggleBtn.classList.toggle('calibrating', calibrating);
+            
+            // Update toolbar visibility - only show when calibrating
+            mappingToolbar.classList.toggle('hide', !calibrating);
+            
+            // Update calibrate button
+            mappingCalibrateBtn.classList.toggle('calibrating', calibrating);
+            mappingCalibrateBtn.textContent = calibrating ? 'Done Calibrating' : 'Calibrate';
+            
+            // Update status indicator - show when mapping is active (even without calibrating)
+            mappingStatus.classList.toggle('active', enabled);
+            mappingStatus.classList.toggle('calibrating', calibrating);
+            mappingStatus.textContent = calibrating ? 'Calibrating...' : (enabled ? 'Mapping Active' : '');
+        };
+        
+        // Toggle mapping mode (🎯 button)
+        // - If mapping is off: enable mapping + start calibration
+        // - If mapping is on + calibrating: stop calibration (keep mapping active)
+        // - If mapping is on + not calibrating: disable mapping entirely
+        if (mappingToggleBtn) {
+            mappingToggleBtn.addEventListener('click', () => {
+                if (!this.mappingController.enabled) {
+                    // Turn on mapping and start calibration
+                    this.mappingController.enable();
+                    this.mappingController.startCalibration();
+                } else if (this.mappingController.calibrating) {
+                    // Stop calibration but keep mapping active
+                    this.mappingController.stopCalibration();
+                } else {
+                    // Mapping is on but not calibrating - disable entirely
+                    this.mappingController.disable();
+                }
+                updateMappingUI();
+            });
+        }
+        
+        // Toggle calibration (Calibrate button in toolbar)
+        if (mappingCalibrateBtn) {
+            mappingCalibrateBtn.addEventListener('click', () => {
+                this.mappingController.toggleCalibration();
+                updateMappingUI();
+            });
+        }
+        
+        // Grid size selector
+        if (mappingGridSize) {
+            mappingGridSize.addEventListener('change', (e) => {
+                const size = parseInt(e.target.value);
+                this.mappingController.setGridSize(size, size);
+            });
+        }
+        
+        // Reset grid - use modal instead of confirm()
+        if (mappingResetBtn) {
+            mappingResetBtn.addEventListener('click', () => {
+                // Use the mapping preset modal for confirmation
+                mappingModalTitle.textContent = 'Reset Grid?';
+                mappingPresetList.innerHTML = '<div style="text-align: center; color: #ccc; padding: 20px;">This will reset the grid to the default rectangle and clear all adjustments.</div>';
+                mappingSaveActions.classList.remove('hide');
+                mappingPresetName.style.display = 'none';
+                mappingPresetSaveConfirm.textContent = 'Reset';
+                mappingPresetSaveConfirm.onclick = () => {
+                    this.mappingController.resetGrid();
+                    // Re-enter calibration to show the reset grid
+                    if (!this.mappingController.calibrating) {
+                        this.mappingController.startCalibration();
+                        updateMappingUI();
+                    }
+                    mappingPresetModal.classList.add('hide');
+                    // Restore modal state
+                    mappingPresetName.style.display = '';
+                    mappingPresetSaveConfirm.textContent = 'Save';
+                    mappingPresetSaveConfirm.onclick = null;
+                };
+                mappingPresetModal.classList.remove('hide');
+            });
+        }
+        
+        // Save preset
+        if (mappingSaveBtn) {
+            mappingSaveBtn.addEventListener('click', () => {
+                mappingModalTitle.textContent = 'Save Mapping Preset';
+                mappingSaveActions.classList.remove('hide');
+                mappingPresetName.value = '';
+                this.populateMappingPresetList(mappingPresetList, false);
+                mappingPresetModal.classList.remove('hide');
+            });
+        }
+        
+        // Confirm save preset
+        if (mappingPresetSaveConfirm) {
+            mappingPresetSaveConfirm.addEventListener('click', () => {
+                const name = mappingPresetName.value.trim();
+                if (name) {
+                    this.mappingController.savePreset(name);
+                    mappingPresetModal.classList.add('hide');
+                } else {
+                    alert('Please enter a preset name');
+                }
+            });
+        }
+        
+        // Load preset
+        if (mappingLoadBtn) {
+            mappingLoadBtn.addEventListener('click', () => {
+                mappingModalTitle.textContent = 'Load Mapping Preset';
+                mappingSaveActions.classList.add('hide');
+                this.populateMappingPresetList(mappingPresetList, true);
+                mappingPresetModal.classList.remove('hide');
+            });
+        }
+        
+        // Close preset modal
+        if (mappingPresetClose) {
+            mappingPresetClose.addEventListener('click', () => {
+                mappingPresetModal.classList.add('hide');
+            });
+        }
+        
+        // Done button - exit mapping mode entirely
+        if (mappingDoneBtn) {
+            mappingDoneBtn.addEventListener('click', () => {
+                this.mappingController.disable();
+                updateMappingUI();
+            });
+        }
+        
+        console.log('Mapping controller initialized');
+    }
+    
+    populateMappingPresetList(container, forLoading) {
+        const presets = this.mappingController.getPresets();
+        const presetNames = Object.keys(presets).filter(name => name !== '__last__');
+        
+        container.innerHTML = '';
+        
+        if (presetNames.length === 0) {
+            container.innerHTML = '<div style="text-align: center; color: #888; padding: 20px;">No saved presets</div>';
+            return;
+        }
+        
+        presetNames.forEach(name => {
+            const preset = presets[name];
+            const item = document.createElement('div');
+            item.className = 'mapping-preset-item';
+            
+            const date = preset.created ? new Date(preset.created).toLocaleDateString() : '';
+            
+            item.innerHTML = `
+                <span class="preset-name">${name}</span>
+                <span class="preset-date">${date}</span>
+                <button class="delete-btn" title="Delete">🗑️</button>
+            `;
+            
+            // Click to load
+            if (forLoading) {
+                item.addEventListener('click', (e) => {
+                    if (!e.target.classList.contains('delete-btn')) {
+                        this.mappingController.loadPreset(name);
+                        document.getElementById('mapping-preset-modal').classList.add('hide');
+                    }
+                });
+            }
+            
+            // Delete button
+            item.querySelector('.delete-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (confirm(`Delete preset "${name}"?`)) {
+                    this.mappingController.deletePreset(name);
+                    this.populateMappingPresetList(container, forLoading);
+                }
+            });
+            
+            container.appendChild(item);
+        });
     }
     
     toggleControls() {
@@ -1406,6 +1631,11 @@ class MobileHydra {
             // Ensure everything is reset
             this.ctx.globalAlpha = 1;
             this.ctx.globalCompositeOperation = 'source-over';
+            
+            // Render through mapping controller if enabled
+            if (this.mappingController && this.mappingController.enabled) {
+                this.mappingController.render();
+            }
         } catch (error) {
             console.warn('Render frame error:', error);
         }
