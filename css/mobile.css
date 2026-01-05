@@ -1233,3 +1233,64 @@ input, textarea {
         font-size: 12px;
     }
 }
+
+/* ============================================================================
+   SHAPE MODE STYLES
+   ============================================================================ */
+
+/* Shape mode selector */
+#mapping-mode {
+    min-width: 80px;
+}
+
+/* Shape type selector - hidden by default */
+#mapping-shape-type {
+    display: none;
+    min-width: 100px;
+}
+
+/* Clear shapes button - hidden by default */
+#mapping-clear-shapes {
+    display: none;
+}
+
+/* Show shape controls when in shape mode */
+.mapping-toolbar.shape-mode #mapping-shape-type,
+.mapping-toolbar.shape-mode #mapping-clear-shapes {
+    display: block;
+}
+
+/* Hide grid size when in shape mode */
+.mapping-toolbar.shape-mode #mapping-grid-size {
+    display: none;
+}
+
+/* Shape mode specific button styles */
+#mapping-clear-shapes {
+    background: #e64823;
+    border-color: #e64823;
+    color: #fff;
+}
+
+#mapping-clear-shapes:hover {
+    background: #ff5533;
+    border-color: #ff5533;
+}
+
+/* Shape mode indicator in toolbar */
+.mapping-toolbar.shape-mode {
+    border-color: rgba(0, 255, 100, 0.3);
+}
+
+/* Active shape type selection */
+#mapping-shape-type option[value="circle"],
+#mapping-shape-type option[value="rectangle"] {
+    color: #fff;
+}
+
+/* Visual feedback when drawing */
+.mapping-toolbar.drawing-active #mapping-shape-type {
+    background: #23e648;
+    color: #000;
+    border-color: #23e648;
+}

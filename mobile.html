@@ -25,12 +25,25 @@
         <div class="mapping-toolbar hide" id="mapping-toolbar">
             <button id="mapping-calibrate-btn" title="Toggle Calibration">Calibrate</button>
             <div class="separator"></div>
+            <!-- Mode selector -->
+            <select id="mapping-mode" title="Mapping Mode">
+                <option value="grid">Grid</option>
+                <option value="shape">Shapes</option>
+            </select>
+            <!-- Grid size (shown in grid mode) -->
             <select id="mapping-grid-size" title="Grid Size">
                 <option value="2">2×2</option>
                 <option value="3" selected>3×3</option>
                 <option value="4">4×4</option>
                 <option value="5">5×5</option>
             </select>
+            <!-- Shape controls (shown in shape mode) -->
+            <select id="mapping-shape-type" title="Shape Type">
+                <option value="">Select...</option>
+                <option value="circle">Circle</option>
+                <option value="rectangle">Rectangle</option>
+            </select>
+            <button id="mapping-clear-shapes" title="Clear All Shapes">Clear</button>
             <div class="separator"></div>
             <button id="mapping-reset-btn" title="Reset Grid">Reset</button>
             <button id="mapping-save-btn" title="Save Preset">Save</button>

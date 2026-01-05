@@ -663,11 +663,16 @@ class MobileHydra {
         const mappingPresetSaveConfirm = document.getElementById('mapping-preset-save-confirm');
         const mappingSaveActions = document.getElementById('mapping-save-actions');
         const mappingModalTitle = document.getElementById('mapping-modal-title');
+        // Shape mode elements
+        const mappingModeSelect = document.getElementById('mapping-mode');
+        const mappingShapeType = document.getElementById('mapping-shape-type');
+        const mappingClearShapes = document.getElementById('mapping-clear-shapes');
         
         // Helper to update all UI states
         const updateMappingUI = () => {
             const enabled = this.mappingController.enabled;
             const calibrating = this.mappingController.calibrating;
+            const mode = this.mappingController.getMode();
             
             // Update toggle button
             mappingToggleBtn.classList.toggle('active', enabled && !calibrating);
@@ -684,6 +689,26 @@ class MobileHydra {
             mappingStatus.classList.toggle('active', enabled);
             mappingStatus.classList.toggle('calibrating', calibrating);
             mappingStatus.textContent = calibrating ? 'Calibrating...' : (enabled ? 'Mapping Active' : '');
+            
+            // Update mode-specific UI visibility
+            const isShapeMode = mode === 'shape';
+            mappingToolbar.classList.toggle('shape-mode', isShapeMode);
+            
+            // Show/hide mode-specific controls
+            if (mappingGridSize) {
+                mappingGridSize.style.display = isShapeMode ? 'none' : '';
+            }
+            if (mappingShapeType) {
+                mappingShapeType.style.display = isShapeMode ? '' : 'none';
+            }
+            if (mappingClearShapes) {
+                mappingClearShapes.style.display = isShapeMode ? '' : 'none';
+            }
+            
+            // Sync mode selector
+            if (mappingModeSelect) {
+                mappingModeSelect.value = mode;
+            }
         };
         
         // Toggle mapping mode (🎯 button)
@@ -720,6 +745,45 @@ class MobileHydra {
             mappingGridSize.addEventListener('change', (e) => {
                 const size = parseInt(e.target.value);
                 this.mappingController.setGridSize(size, size);
+            });
+        }
+        
+        // Mode selector (grid/shape)
+        if (mappingModeSelect) {
+            mappingModeSelect.addEventListener('change', (e) => {
+                this.mappingController.setMode(e.target.value);
+                updateMappingUI();
+            });
+        }
+        
+        // Shape type selector
+        if (mappingShapeType) {
+            mappingShapeType.addEventListener('change', (e) => {
+                const shapeType = e.target.value || null;
+                this.mappingController.setDrawingShapeType(shapeType);
+            });
+        }
+        
+        // Clear shapes button
+        if (mappingClearShapes) {
+            mappingClearShapes.addEventListener('click', () => {
+                if (this.mappingController.getShapes().length > 0) {
+                    // Use the mapping preset modal for confirmation
+                    mappingModalTitle.textContent = 'Clear All Shapes?';
+                    mappingPresetList.innerHTML = '<div style="text-align: center; color: #ccc; padding: 20px;">This will remove all shapes. This action cannot be undone.</div>';
+                    mappingSaveActions.classList.remove('hide');
+                    mappingPresetName.style.display = 'none';
+                    mappingPresetSaveConfirm.textContent = 'Clear';
+                    mappingPresetSaveConfirm.onclick = () => {
+                        this.mappingController.clearShapes();
+                        mappingPresetModal.classList.add('hide');
+                        // Restore modal state
+                        mappingPresetName.style.display = '';
+                        mappingPresetSaveConfirm.textContent = 'Save';
+                        mappingPresetSaveConfirm.onclick = null;
+                    };
+                    mappingPresetModal.classList.remove('hide');
+                }
             });
         }
         

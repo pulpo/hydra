@@ -50,6 +50,18 @@ class MappingController {
         this.isMeshDirty = true;
         this.cachedMesh = null;
         
+        // Shape mode properties (Phase 1)
+        this.mode = 'grid';                     // 'grid' | 'shape'
+        this.shapes = [];                       // Array of shape objects
+        this.activeShapeIndex = -1;             // Currently selected shape (-1 = none)
+        
+        // Drawing state (Phase 2)
+        this.isDrawingShape = false;            // Currently drawing a new shape
+        this.drawingShapeType = null;           // 'circle' | 'rectangle' | null
+        this.drawingStart = null;               // {x, y} normalized start point
+        this.drawingCurrent = null;             // {x, y} normalized current point (for preview)
+        this.selectedShapePoint = null;         // { shapeIndex, pointIndex } for dragging
+        
         // Bind methods
         this.onPointerDown = this.onPointerDown.bind(this);
         this.onPointerMove = this.onPointerMove.bind(this);
@@ -575,6 +587,48 @@ class MappingController {
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
         
+        // Shape mode handling
+        if (this.mode === 'shape') {
+            // If drawing shape type is selected, start drawing
+            if (this.drawingShapeType) {
+                this.isDrawingShape = true;
+                this.drawingStart = this.pixelsToNormalized(x, y, rect);
+                this.drawingCurrent = { ...this.drawingStart };
+                this.overlayCanvas.setPointerCapture(e.pointerId);
+                this.drawOverlay();
+                return;
+            }
+            
+            // Check for shape point hit (for dragging)
+            const shapePointHit = this.hitTestShapePoint(x, y, rect);
+            if (shapePointHit) {
+                this.activeShapeIndex = shapePointHit.shapeIndex;
+                this.selectedShapePoint = shapePointHit;
+                this.isDragging = true;
+                
+                const point = this.shapes[shapePointHit.shapeIndex].points[shapePointHit.pointIndex];
+                const pixelPoint = this.normalizedToPixels(point, rect);
+                this.dragOffset = {
+                    x: pixelPoint.x - x,
+                    y: pixelPoint.y - y
+                };
+                
+                this.overlayCanvas.setPointerCapture(e.pointerId);
+                this.drawOverlay();
+                return;
+            }
+            
+            // Check for segment toggle
+            const segmentHit = this.hitTestShapeSegment(x, y, rect);
+            if (segmentHit) {
+                this.toggleShapeSegment(segmentHit.shapeIndex, segmentHit.segmentIndex);
+                return;
+            }
+            
+            return;
+        }
+        
+        // Grid mode: existing behavior
         // First, check if a control point was clicked (pass cached rect)
         const hit = this.hitTest(x, y, rect);
         
@@ -603,6 +657,34 @@ class MappingController {
     }
     
     onPointerMove(e) {
+        // Shape drawing preview
+        if (this.mode === 'shape' && this.isDrawingShape && this.drawingShapeType) {
+            e.preventDefault();
+            const rect = this.overlayCanvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            this.drawingCurrent = this.pixelsToNormalized(x, y, rect);
+            this.drawOverlay();
+            return;
+        }
+        
+        // Shape point dragging
+        if (this.mode === 'shape' && this.isDragging && this.selectedShapePoint) {
+            e.preventDefault();
+            const rect = this.overlayCanvas.getBoundingClientRect();
+            const x = e.clientX - rect.left + this.dragOffset.x;
+            const y = e.clientY - rect.top + this.dragOffset.y;
+            
+            const normalized = this.pixelsToNormalized(x, y, rect);
+            const shape = this.shapes[this.selectedShapePoint.shapeIndex];
+            shape.points[this.selectedShapePoint.pointIndex] = normalized;
+            
+            this.isMeshDirty = true;
+            this.drawOverlay();
+            return;
+        }
+        
+        // Grid mode: existing behavior
         if (!this.isDragging || !this.selectedPoint) return;
         
         e.preventDefault();
@@ -622,6 +704,24 @@ class MappingController {
     }
     
     onPointerUp(e) {
+        // Finalize shape drawing
+        if (this.mode === 'shape' && this.isDrawingShape && this.drawingShapeType) {
+            this.finalizeShapeDrawing();
+            this.overlayCanvas.releasePointerCapture(e.pointerId);
+            this.drawOverlay();
+            return;
+        }
+        
+        // End shape point dragging
+        if (this.mode === 'shape' && this.isDragging && this.selectedShapePoint) {
+            this.isDragging = false;
+            this.selectedShapePoint = null;
+            this.overlayCanvas.releasePointerCapture(e.pointerId);
+            this.drawOverlay();
+            return;
+        }
+        
+        // Grid mode: existing behavior
         if (this.isDragging) {
             this.isDragging = false;
             this.overlayCanvas.releasePointerCapture(e.pointerId);
@@ -646,9 +746,36 @@ class MappingController {
         
         ctx.clearRect(0, 0, rect.width, rect.height);
         
+        // Draw based on mode
+        if (this.mode === 'grid') {
+            this.drawGridOverlay(ctx, rect);
+        } else if (this.mode === 'shape') {
+            // In shape mode, draw grid as faint background reference
+            this.drawGridOverlay(ctx, rect, true);
+            // Draw shapes
+            this.drawShapes(ctx, rect);
+            // Draw shape being drawn (preview)
+            if (this.isDrawingShape && this.drawingStart && this.drawingCurrent) {
+                this.drawShapePreview(ctx, rect);
+            }
+        }
+        
+        // Draw mode indicator
+        this.drawModeIndicator(ctx, rect);
+    }
+    
+    /**
+     * Draw the grid overlay
+     * @param {CanvasRenderingContext2D} ctx
+     * @param {DOMRect} rect
+     * @param {boolean} faint - Draw as faint background
+     */
+    drawGridOverlay(ctx, rect, faint = false) {
+        const alpha = faint ? 0.2 : 1;
+        
         // Draw grid lines
-        ctx.strokeStyle = this.gridLineColor;
-        ctx.lineWidth = 2; // Make lines thicker for visibility
+        ctx.strokeStyle = faint ? 'rgba(255, 255, 255, 0.15)' : this.gridLineColor;
+        ctx.lineWidth = faint ? 1 : 2;
         
         // Horizontal lines
         for (let row = 0; row <= this.gridSize.rows; row++) {
@@ -677,6 +804,9 @@ class MappingController {
             }
             ctx.stroke();
         }
+        
+        // Skip blocked cells and control points if faint mode
+        if (faint) return;
         
         // Draw blocked cells with semi-transparent overlay and X pattern
         for (let row = 0; row < this.gridSize.rows; row++) {
@@ -768,6 +898,37 @@ class MappingController {
                 }
             }
         }
+    }
+    
+    /**
+     * Draw mode indicator in corner
+     * @param {CanvasRenderingContext2D} ctx
+     * @param {DOMRect} rect
+     */
+    drawModeIndicator(ctx, rect) {
+        const padding = 10;
+        const text = this.mode === 'grid' ? 'GRID MODE' : 'SHAPE MODE';
+        const subtext = this.mode === 'shape' && this.drawingShapeType 
+            ? `Drawing: ${this.drawingShapeType}` 
+            : (this.mode === 'shape' ? 'Tap segment to toggle' : 'Tap cell to toggle');
+        
+        ctx.font = 'bold 12px sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        
+        // Background
+        const textWidth = Math.max(ctx.measureText(text).width, ctx.measureText(subtext).width);
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.fillRect(padding - 4, padding - 4, textWidth + 12, 38);
+        
+        // Mode text
+        ctx.fillStyle = this.mode === 'grid' ? 'rgba(0, 200, 255, 1)' : 'rgba(0, 255, 100, 1)';
+        ctx.fillText(text, padding, padding);
+        
+        // Subtext
+        ctx.font = '10px sans-serif';
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+        ctx.fillText(subtext, padding, padding + 16);
     }
     
     /**
@@ -887,6 +1048,9 @@ class MappingController {
             gridSize: { ...this.gridSize },
             controlPoints: JSON.parse(JSON.stringify(this.controlPoints)),
             blockedCells: JSON.parse(JSON.stringify(this.blockedCells)),
+            // Shape mode data
+            mode: this.mode,
+            shapes: JSON.parse(JSON.stringify(this.shapes)),
             created: Date.now()
         };
         
@@ -915,6 +1079,21 @@ class MappingController {
             this.blockedCells = JSON.parse(JSON.stringify(preset.blockedCells));
         } else {
             this.initBlockedCells();
+        }
+        
+        // Load shape mode data, or initialize if not present (for old presets)
+        if (preset.mode) {
+            this.mode = preset.mode;
+        } else {
+            this.mode = 'grid';
+        }
+        
+        if (preset.shapes) {
+            this.shapes = JSON.parse(JSON.stringify(preset.shapes));
+            this.activeShapeIndex = this.shapes.length > 0 ? 0 : -1;
+        } else {
+            this.shapes = [];
+            this.activeShapeIndex = -1;
         }
         
         // Mark mesh as dirty since preset was loaded
@@ -988,6 +1167,8 @@ class MappingController {
             gridSize: this.gridSize,
             controlPoints: this.controlPoints,
             blockedCells: this.blockedCells,
+            mode: this.mode,
+            shapes: this.shapes,
             exported: Date.now()
         }, null, 2);
     }
@@ -1008,6 +1189,21 @@ class MappingController {
                     this.blockedCells = data.blockedCells;
                 } else {
                     this.initBlockedCells();
+                }
+                
+                // Import shape mode data
+                if (data.mode) {
+                    this.mode = data.mode;
+                } else {
+                    this.mode = 'grid';
+                }
+                
+                if (data.shapes) {
+                    this.shapes = data.shapes;
+                    this.activeShapeIndex = this.shapes.length > 0 ? 0 : -1;
+                } else {
+                    this.shapes = [];
+                    this.activeShapeIndex = -1;
                 }
                 
                 // Mark mesh as dirty since mapping was imported
@@ -1048,6 +1244,565 @@ class MappingController {
         }
         
 
+    }
+    
+    // =========================================================================
+    // Shape Mode - Phase 1: Mode System and Data Structures
+    // =========================================================================
+    
+    /**
+     * Set the current mode
+     * @param {string} mode - 'grid' or 'shape'
+     */
+    setMode(mode) {
+        if (mode !== 'grid' && mode !== 'shape') return;
+        this.mode = mode;
+        this.drawingShapeType = null;
+        this.isDrawingShape = false;
+        this.drawingStart = null;
+        this.drawingCurrent = null;
+        if (this.calibrating) {
+            this.drawOverlay();
+        }
+    }
+    
+    /**
+     * Get current mode
+     * @returns {string}
+     */
+    getMode() {
+        return this.mode;
+    }
+    
+    /**
+     * Set the shape type to draw
+     * @param {string|null} type - 'circle', 'rectangle', or null to stop drawing
+     */
+    setDrawingShapeType(type) {
+        if (type !== null && type !== 'circle' && type !== 'rectangle') return;
+        this.drawingShapeType = type;
+        this.isDrawingShape = false;
+        this.drawingStart = null;
+        this.drawingCurrent = null;
+    }
+    
+    /**
+     * Get current drawing shape type
+     * @returns {string|null}
+     */
+    getDrawingShapeType() {
+        return this.drawingShapeType;
+    }
+    
+    /**
+     * Add a shape to the shapes array
+     * @param {Object} shape
+     */
+    addShape(shape) {
+        shape.id = shape.id || `shape_${Date.now()}`;
+        this.shapes.push(shape);
+        this.activeShapeIndex = this.shapes.length - 1;
+        this.isMeshDirty = true;
+        if (this.calibrating) {
+            this.drawOverlay();
+        }
+    }
+    
+    /**
+     * Remove a shape by index
+     * @param {number} index
+     */
+    removeShape(index) {
+        if (index >= 0 && index < this.shapes.length) {
+            this.shapes.splice(index, 1);
+            if (this.activeShapeIndex >= this.shapes.length) {
+                this.activeShapeIndex = this.shapes.length - 1;
+            }
+            this.isMeshDirty = true;
+            if (this.calibrating) {
+                this.drawOverlay();
+            }
+        }
+    }
+    
+    /**
+     * Select a shape for editing
+     * @param {number} index
+     */
+    selectShape(index) {
+        if (index >= -1 && index < this.shapes.length) {
+            this.activeShapeIndex = index;
+            if (this.calibrating) {
+                this.drawOverlay();
+            }
+        }
+    }
+    
+    /**
+     * Get all shapes
+     * @returns {Array}
+     */
+    getShapes() {
+        return this.shapes;
+    }
+    
+    /**
+     * Get active shape
+     * @returns {Object|null}
+     */
+    getActiveShape() {
+        if (this.activeShapeIndex >= 0 && this.activeShapeIndex < this.shapes.length) {
+            return this.shapes[this.activeShapeIndex];
+        }
+        return null;
+    }
+    
+    /**
+     * Clear all shapes
+     */
+    clearShapes() {
+        this.shapes = [];
+        this.activeShapeIndex = -1;
+        this.isMeshDirty = true;
+        if (this.calibrating) {
+            this.drawOverlay();
+        }
+    }
+    
+    // =========================================================================
+    // Shape Mode - Phase 2: Interactive Drawing
+    // =========================================================================
+    
+    /**
+     * Finalize shape drawing and create the shape
+     */
+    finalizeShapeDrawing() {
+        if (!this.drawingStart || !this.drawingCurrent) {
+            this.isDrawingShape = false;
+            return;
+        }
+        
+        const shape = this.createShapeFromDrawing();
+        if (shape) {
+            this.generateShapePoints(shape);
+            this.addShape(shape);
+        }
+        
+        this.isDrawingShape = false;
+        this.drawingStart = null;
+        this.drawingCurrent = null;
+        // Keep drawingShapeType so user can draw another shape of same type
+    }
+    
+    /**
+     * Create a shape object from drawing start/current points
+     * @returns {Object|null}
+     */
+    createShapeFromDrawing() {
+        const start = this.drawingStart;
+        const current = this.drawingCurrent;
+        
+        if (this.drawingShapeType === 'circle') {
+            const dx = current.x - start.x;
+            const dy = current.y - start.y;
+            const radius = Math.sqrt(dx * dx + dy * dy);
+            
+            if (radius < 0.02) return null; // Too small
+            
+            return {
+                type: 'circle',
+                center: { x: start.x, y: start.y },
+                radius: radius,
+                points: [],
+                segments: [],
+                renderMode: 'mask'
+            };
+        }
+        
+        if (this.drawingShapeType === 'rectangle') {
+            const minX = Math.min(start.x, current.x);
+            const minY = Math.min(start.y, current.y);
+            const width = Math.abs(current.x - start.x);
+            const height = Math.abs(current.y - start.y);
+            
+            if (width < 0.02 || height < 0.02) return null; // Too small
+            
+            return {
+                type: 'rectangle',
+                topLeft: { x: minX, y: minY },
+                width: width,
+                height: height,
+                points: [],
+                segments: [],
+                renderMode: 'mask'
+            };
+        }
+        
+        return null;
+    }
+    
+    // =========================================================================
+    // Shape Mode - Phase 3: Automatic Point Generation
+    // =========================================================================
+    
+    /**
+     * Generate control points for a shape based on gridSize
+     * @param {Object} shape
+     */
+    generateShapePoints(shape) {
+        if (shape.type === 'circle') {
+            shape.points = this.generateCirclePoints(shape);
+        } else if (shape.type === 'rectangle') {
+            shape.points = this.generateRectanglePoints(shape);
+        }
+        
+        // Initialize all segments as enabled
+        shape.segments = new Array(shape.points.length).fill(true);
+    }
+    
+    /**
+     * Generate points around a circle
+     * @param {Object} shape - Circle shape with center and radius
+     * @returns {Array} Array of {x, y} points
+     */
+    generateCirclePoints(shape) {
+        const numPoints = (this.gridSize.rows + this.gridSize.cols) * 2;
+        const points = [];
+        
+        for (let i = 0; i < numPoints; i++) {
+            // Start from top (-PI/2) and go clockwise
+            const angle = -Math.PI / 2 + (i / numPoints) * Math.PI * 2;
+            points.push({
+                x: shape.center.x + shape.radius * Math.cos(angle),
+                y: shape.center.y + shape.radius * Math.sin(angle)
+            });
+        }
+        
+        return points;
+    }
+    
+    /**
+     * Generate points around a rectangle
+     * @param {Object} shape - Rectangle shape with topLeft, width, height
+     * @returns {Array} Array of {x, y} points
+     */
+    generateRectanglePoints(shape) {
+        const points = [];
+        const { topLeft, width, height } = shape;
+        const hPoints = Math.max(2, this.gridSize.cols + 1); // Points on horizontal sides
+        const vPoints = Math.max(2, this.gridSize.rows + 1); // Points on vertical sides
+        
+        // Top edge (left to right)
+        for (let i = 0; i < hPoints; i++) {
+            points.push({
+                x: topLeft.x + (width * i / (hPoints - 1)),
+                y: topLeft.y
+            });
+        }
+        
+        // Right edge (top to bottom, skip first point - already added)
+        for (let i = 1; i < vPoints; i++) {
+            points.push({
+                x: topLeft.x + width,
+                y: topLeft.y + (height * i / (vPoints - 1))
+            });
+        }
+        
+        // Bottom edge (right to left, skip first point)
+        for (let i = hPoints - 2; i >= 0; i--) {
+            points.push({
+                x: topLeft.x + (width * i / (hPoints - 1)),
+                y: topLeft.y + height
+            });
+        }
+        
+        // Left edge (bottom to top, skip first and last points)
+        for (let i = vPoints - 2; i > 0; i--) {
+            points.push({
+                x: topLeft.x,
+                y: topLeft.y + (height * i / (vPoints - 1))
+            });
+        }
+        
+        return points;
+    }
+    
+    // =========================================================================
+    // Shape Mode - Phase 4: Segment Toggle
+    // =========================================================================
+    
+    /**
+     * Toggle a segment's enabled state
+     * @param {number} shapeIndex
+     * @param {number} segmentIndex
+     * @returns {boolean|null} New state or null if invalid
+     */
+    toggleShapeSegment(shapeIndex, segmentIndex) {
+        if (shapeIndex < 0 || shapeIndex >= this.shapes.length) return null;
+        
+        const shape = this.shapes[shapeIndex];
+        if (segmentIndex < 0 || segmentIndex >= shape.segments.length) return null;
+        
+        shape.segments[segmentIndex] = !shape.segments[segmentIndex];
+        this.isMeshDirty = true;
+        
+        if (this.calibrating) {
+            this.drawOverlay();
+        }
+        
+        return shape.segments[segmentIndex];
+    }
+    
+    /**
+     * Hit test for shape segments
+     * @param {number} x - Pixel x
+     * @param {number} y - Pixel y
+     * @param {DOMRect} rect
+     * @returns {Object|null} { shapeIndex, segmentIndex } or null
+     */
+    hitTestShapeSegment(x, y, rect) {
+        const hitDistance = 20; // Pixels - larger for touch
+        
+        for (let si = 0; si < this.shapes.length; si++) {
+            const shape = this.shapes[si];
+            const points = shape.points;
+            
+            if (points.length < 2) continue;
+            
+            for (let i = 0; i < points.length; i++) {
+                const p1 = this.normalizedToPixels(points[i], rect);
+                const p2 = this.normalizedToPixels(points[(i + 1) % points.length], rect);
+                
+                const dist = this.pointToLineDistance(x, y, p1.x, p1.y, p2.x, p2.y);
+                
+                if (dist < hitDistance) {
+                    return { shapeIndex: si, segmentIndex: i };
+                }
+            }
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Hit test for shape control points
+     * @param {number} x - Pixel x
+     * @param {number} y - Pixel y
+     * @param {DOMRect} rect
+     * @returns {Object|null} { shapeIndex, pointIndex } or null
+     */
+    hitTestShapePoint(x, y, rect) {
+        const hitRadius = this.pointRadius * 1.5;
+        
+        for (let si = 0; si < this.shapes.length; si++) {
+            const shape = this.shapes[si];
+            const points = shape.points;
+            
+            for (let pi = 0; pi < points.length; pi++) {
+                const p = this.normalizedToPixels(points[pi], rect);
+                const dx = p.x - x;
+                const dy = p.y - y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                
+                if (dist < hitRadius) {
+                    return { shapeIndex: si, pointIndex: pi };
+                }
+            }
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Calculate distance from point to line segment
+     * @param {number} px - Point x
+     * @param {number} py - Point y
+     * @param {number} x1 - Line start x
+     * @param {number} y1 - Line start y
+     * @param {number} x2 - Line end x
+     * @param {number} y2 - Line end y
+     * @returns {number} Distance in pixels
+     */
+    pointToLineDistance(px, py, x1, y1, x2, y2) {
+        const A = px - x1;
+        const B = py - y1;
+        const C = x2 - x1;
+        const D = y2 - y1;
+        
+        const dot = A * C + B * D;
+        const lenSq = C * C + D * D;
+        let param = -1;
+        
+        if (lenSq !== 0) {
+            param = dot / lenSq;
+        }
+        
+        let xx, yy;
+        
+        if (param < 0) {
+            xx = x1;
+            yy = y1;
+        } else if (param > 1) {
+            xx = x2;
+            yy = y2;
+        } else {
+            xx = x1 + param * C;
+            yy = y1 + param * D;
+        }
+        
+        const dx = px - xx;
+        const dy = py - yy;
+        
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+    
+    // =========================================================================
+    // Shape Mode - Drawing Helpers
+    // =========================================================================
+    
+    /**
+     * Draw all shapes on the overlay
+     * @param {CanvasRenderingContext2D} ctx
+     * @param {DOMRect} rect
+     */
+    drawShapes(ctx, rect) {
+        this.shapes.forEach((shape, shapeIndex) => {
+            const isActive = shapeIndex === this.activeShapeIndex;
+            this.drawShape(ctx, rect, shape, isActive);
+        });
+    }
+    
+    /**
+     * Draw a single shape on the overlay
+     * @param {CanvasRenderingContext2D} ctx
+     * @param {DOMRect} rect
+     * @param {Object} shape
+     * @param {boolean} isActive
+     */
+    drawShape(ctx, rect, shape, isActive) {
+        const points = shape.points;
+        if (points.length === 0) return;
+        
+        // Draw segments
+        for (let i = 0; i < points.length; i++) {
+            const p1 = this.normalizedToPixels(points[i], rect);
+            const p2 = this.normalizedToPixels(points[(i + 1) % points.length], rect);
+            const enabled = shape.segments[i];
+            
+            ctx.beginPath();
+            ctx.moveTo(p1.x, p1.y);
+            ctx.lineTo(p2.x, p2.y);
+            
+            if (enabled) {
+                ctx.strokeStyle = isActive ? 'rgba(0, 255, 100, 0.9)' : 'rgba(0, 200, 255, 0.8)';
+                ctx.lineWidth = 3;
+                ctx.setLineDash([]);
+            } else {
+                ctx.strokeStyle = 'rgba(255, 50, 50, 0.6)';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([8, 4]);
+            }
+            
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+        
+        // Draw control points
+        points.forEach((point, i) => {
+            const p = this.normalizedToPixels(point, rect);
+            
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
+            ctx.fillStyle = isActive ? 'rgba(0, 255, 100, 1)' : 'rgba(0, 200, 255, 1)';
+            ctx.fill();
+            ctx.strokeStyle = 'white';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        });
+        
+        // Draw shape type indicator at center
+        let centerX, centerY;
+        if (shape.type === 'circle') {
+            centerX = shape.center.x;
+            centerY = shape.center.y;
+        } else if (shape.type === 'rectangle') {
+            centerX = shape.topLeft.x + shape.width / 2;
+            centerY = shape.topLeft.y + shape.height / 2;
+        }
+        
+        if (centerX !== undefined) {
+            const center = this.normalizedToPixels({ x: centerX, y: centerY }, rect);
+            ctx.fillStyle = isActive ? 'rgba(0, 255, 100, 0.3)' : 'rgba(0, 200, 255, 0.2)';
+            ctx.font = 'bold 14px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(shape.type === 'circle' ? '○' : '□', center.x, center.y);
+        }
+    }
+    
+    /**
+     * Draw shape preview while drawing
+     * @param {CanvasRenderingContext2D} ctx
+     * @param {DOMRect} rect
+     */
+    drawShapePreview(ctx, rect) {
+        if (!this.drawingStart || !this.drawingCurrent) return;
+        
+        const start = this.normalizedToPixels(this.drawingStart, rect);
+        const current = this.normalizedToPixels(this.drawingCurrent, rect);
+        
+        ctx.strokeStyle = 'rgba(255, 255, 0, 0.9)';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([10, 5]);
+        
+        if (this.drawingShapeType === 'circle') {
+            const dx = current.x - start.x;
+            const dy = current.y - start.y;
+            const radius = Math.sqrt(dx * dx + dy * dy);
+            
+            ctx.beginPath();
+            ctx.arc(start.x, start.y, radius, 0, Math.PI * 2);
+            ctx.stroke();
+            
+            // Draw center point
+            ctx.setLineDash([]);
+            ctx.beginPath();
+            ctx.arc(start.x, start.y, 6, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(255, 255, 0, 1)';
+            ctx.fill();
+            ctx.strokeStyle = 'white';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            
+            // Draw radius line
+            ctx.setLineDash([5, 3]);
+            ctx.strokeStyle = 'rgba(255, 255, 0, 0.6)';
+            ctx.beginPath();
+            ctx.moveTo(start.x, start.y);
+            ctx.lineTo(current.x, current.y);
+            ctx.stroke();
+            
+        } else if (this.drawingShapeType === 'rectangle') {
+            const x = Math.min(start.x, current.x);
+            const y = Math.min(start.y, current.y);
+            const w = Math.abs(current.x - start.x);
+            const h = Math.abs(current.y - start.y);
+            
+            ctx.beginPath();
+            ctx.rect(x, y, w, h);
+            ctx.stroke();
+            
+            // Draw corner points
+            ctx.setLineDash([]);
+            ctx.fillStyle = 'rgba(255, 255, 0, 1)';
+            [[x, y], [x + w, y], [x + w, y + h], [x, y + h]].forEach(([px, py]) => {
+                ctx.beginPath();
+                ctx.arc(px, py, 5, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        }
+        
+        ctx.setLineDash([]);
     }
 }
 
