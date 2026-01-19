@@ -652,6 +652,7 @@ class MobileHydra {
         const mappingStatus = document.getElementById('mapping-status');
         const mappingCalibrateBtn = document.getElementById('mapping-calibrate-btn');
         const mappingGridSize = document.getElementById('mapping-grid-size');
+        const mappingMergeBtn = document.getElementById('mapping-merge-btn');
         const mappingResetBtn = document.getElementById('mapping-reset-btn');
         const mappingSaveBtn = document.getElementById('mapping-save-btn');
         const mappingLoadBtn = document.getElementById('mapping-load-btn');
@@ -668,6 +669,7 @@ class MobileHydra {
         const updateMappingUI = () => {
             const enabled = this.mappingController.enabled;
             const calibrating = this.mappingController.calibrating;
+            const mergeMode = this.mappingController.mergeMode;
             
             // Update toggle button
             mappingToggleBtn.classList.toggle('active', enabled && !calibrating);
@@ -680,10 +682,21 @@ class MobileHydra {
             mappingCalibrateBtn.classList.toggle('calibrating', calibrating);
             mappingCalibrateBtn.textContent = calibrating ? 'Done Calibrating' : 'Calibrate';
             
+            // Update merge button
+            if (mappingMergeBtn) {
+                mappingMergeBtn.classList.toggle('active', mergeMode);
+                mappingMergeBtn.classList.toggle('merging', mergeMode);
+                mappingMergeBtn.textContent = mergeMode ? 'Confirm Merge' : 'Merge';
+            }
+            
             // Update status indicator - show when mapping is active (even without calibrating)
             mappingStatus.classList.toggle('active', enabled);
             mappingStatus.classList.toggle('calibrating', calibrating);
-            mappingStatus.textContent = calibrating ? 'Calibrating...' : (enabled ? 'Mapping Active' : '');
+            if (mergeMode) {
+                mappingStatus.textContent = 'Merge Mode - Select cells';
+            } else {
+                mappingStatus.textContent = calibrating ? 'Calibrating...' : (enabled ? 'Mapping Active' : '');
+            }
         };
         
         // Toggle mapping mode (🎯 button)
@@ -720,6 +733,31 @@ class MobileHydra {
             mappingGridSize.addEventListener('change', (e) => {
                 const size = parseInt(e.target.value);
                 this.mappingController.setGridSize(size, size);
+            });
+        }
+        
+        // Merge cells button
+        if (mappingMergeBtn) {
+            mappingMergeBtn.addEventListener('click', () => {
+                if (this.mappingController.mergeMode) {
+                    // Already in merge mode - try to confirm merge
+                    if (this.mappingController.mergeSelection.length < 2) {
+                        // Not enough cells selected - just exit merge mode
+                        this.mappingController.disableMergeMode();
+                    } else if (this.mappingController.isValidRectangularSelection()) {
+                        // Valid selection - confirm merge
+                        this.mappingController.confirmMerge();
+                    } else {
+                        // Invalid selection - show error in status
+                        mappingStatus.textContent = 'Select a rectangle!';
+                        setTimeout(() => updateMappingUI(), 1500);
+                        return;
+                    }
+                } else {
+                    // Enter merge mode
+                    this.mappingController.enableMergeMode();
+                }
+                updateMappingUI();
             });
         }
         

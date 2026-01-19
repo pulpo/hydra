@@ -997,9 +997,21 @@ input, textarea {
     animation: pulse-glow 1.5s ease-in-out infinite;
 }
 
+.mapping-toolbar button.merging {
+    background: #00d4aa;
+    color: #000;
+    border-color: #00d4aa;
+    animation: pulse-glow-merge 1.5s ease-in-out infinite;
+}
+
 @keyframes pulse-glow {
     0%, 100% { box-shadow: 0 0 5px rgba(255, 135, 0, 0.5); }
     50% { box-shadow: 0 0 20px rgba(255, 135, 0, 0.8); }
+}
+
+@keyframes pulse-glow-merge {
+    0%, 100% { box-shadow: 0 0 5px rgba(0, 212, 170, 0.5); }
+    50% { box-shadow: 0 0 20px rgba(0, 212, 170, 0.8); }
 }
 
 .mapping-toolbar select {
