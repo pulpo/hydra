@@ -32,6 +32,9 @@ class MappingController {
         this.mergeSelection = [];         // Array of {row, col} cells selected for merge
         this.mergedRegions = [];          // Array of merged region definitions
         
+        // Mask mode state - when true, moving points changes visible area without warping
+        this.maskMode = false;
+        
         // Canvas and WebGL
         this.canvas = null;
         this.gl = null;
@@ -522,6 +525,44 @@ class MappingController {
      */
     initMergedRegions() {
         this.mergedRegions = [];
+    }
+    
+    // =========================================================================
+    // Mask Mode Methods
+    // =========================================================================
+    
+    /**
+     * Toggle mask mode on/off
+     * In mask mode, moving control points changes the visible area without warping the texture
+     */
+    toggleMaskMode() {
+        this.maskMode = !this.maskMode;
+        this.isMeshDirty = true;
+        
+        if (this.calibrating) {
+            this.drawOverlay();
+        }
+        
+        return this.maskMode;
+    }
+    
+    /**
+     * Set mask mode explicitly
+     */
+    setMaskMode(enabled) {
+        this.maskMode = enabled;
+        this.isMeshDirty = true;
+        
+        if (this.calibrating) {
+            this.drawOverlay();
+        }
+    }
+    
+    /**
+     * Get current mask mode state
+     */
+    isMaskMode() {
+        return this.maskMode;
     }
     
     /**
@@ -1196,6 +1237,12 @@ class MappingController {
      * Build mesh geometry from control points
      * Returns arrays for positions and texture coordinates
      * Handles merged regions as single unified quads
+     * 
+     * In Warp Mode (maskMode=false): UVs use uniform grid positions, positions use control points
+     *   -> Moving a point warps/stretches the texture
+     * 
+     * In Mask Mode (maskMode=true): UVs follow control point positions
+     *   -> Moving a point changes visible area without distorting the texture
      */
     buildMesh() {
         const positions = [];
@@ -1225,11 +1272,21 @@ class MappingController {
             const bl = this.controlPoints[maxRow + 1][minCol];
             const br = this.controlPoints[maxRow + 1][maxCol + 1];
             
-            // UV coordinates span the entire merged area
-            const uvTL = { x: minCol / cols, y: minRow / rows };
-            const uvTR = { x: (maxCol + 1) / cols, y: minRow / rows };
-            const uvBL = { x: minCol / cols, y: (maxRow + 1) / rows };
-            const uvBR = { x: (maxCol + 1) / cols, y: (maxRow + 1) / rows };
+            // UV coordinates: in mask mode, use control point positions; in warp mode, use uniform grid
+            let uvTL, uvTR, uvBL, uvBR;
+            if (this.maskMode) {
+                // Mask mode: UVs follow control points (no distortion)
+                uvTL = { x: tl.x, y: tl.y };
+                uvTR = { x: tr.x, y: tr.y };
+                uvBL = { x: bl.x, y: bl.y };
+                uvBR = { x: br.x, y: br.y };
+            } else {
+                // Warp mode: UVs use uniform grid positions (causes stretching)
+                uvTL = { x: minCol / cols, y: minRow / rows };
+                uvTR = { x: (maxCol + 1) / cols, y: minRow / rows };
+                uvBL = { x: minCol / cols, y: (maxRow + 1) / rows };
+                uvBR = { x: (maxCol + 1) / cols, y: (maxRow + 1) / rows };
+            }
             
             // Triangle 1: TL, TR, BL
             positions.push(tl.x, tl.y, tr.x, tr.y, bl.x, bl.y);
@@ -1264,11 +1321,21 @@ class MappingController {
                 const bl = this.controlPoints[row + 1][col];
                 const br = this.controlPoints[row + 1][col + 1];
                 
-                // UV coordinates (normalized source texture coordinates)
-                const uvTL = { x: col / cols, y: row / rows };
-                const uvTR = { x: (col + 1) / cols, y: row / rows };
-                const uvBL = { x: col / cols, y: (row + 1) / rows };
-                const uvBR = { x: (col + 1) / cols, y: (row + 1) / rows };
+                // UV coordinates: in mask mode, use control point positions; in warp mode, use uniform grid
+                let uvTL, uvTR, uvBL, uvBR;
+                if (this.maskMode) {
+                    // Mask mode: UVs follow control points (no distortion)
+                    uvTL = { x: tl.x, y: tl.y };
+                    uvTR = { x: tr.x, y: tr.y };
+                    uvBL = { x: bl.x, y: bl.y };
+                    uvBR = { x: br.x, y: br.y };
+                } else {
+                    // Warp mode: UVs use uniform grid positions (causes stretching)
+                    uvTL = { x: col / cols, y: row / rows };
+                    uvTR = { x: (col + 1) / cols, y: row / rows };
+                    uvBL = { x: col / cols, y: (row + 1) / rows };
+                    uvBR = { x: (col + 1) / cols, y: (row + 1) / rows };
+                }
                 
                 // Triangle 1: TL, TR, BL
                 positions.push(tl.x, tl.y, tr.x, tr.y, bl.x, bl.y);
@@ -1359,6 +1426,7 @@ class MappingController {
             controlPoints: JSON.parse(JSON.stringify(this.controlPoints)),
             blockedCells: JSON.parse(JSON.stringify(this.blockedCells)),
             mergedRegions: JSON.parse(JSON.stringify(this.mergedRegions)),
+            maskMode: this.maskMode,
             created: Date.now()
         };
         
@@ -1395,6 +1463,9 @@ class MappingController {
         } else {
             this.initMergedRegions();
         }
+        
+        // Load mask mode, default to false for old presets
+        this.maskMode = preset.maskMode || false;
         
         // Mark mesh as dirty since preset was loaded
         this.isMeshDirty = true;
@@ -1468,6 +1539,7 @@ class MappingController {
             controlPoints: this.controlPoints,
             blockedCells: this.blockedCells,
             mergedRegions: this.mergedRegions,
+            maskMode: this.maskMode,
             exported: Date.now()
         }, null, 2);
     }
@@ -1496,6 +1568,9 @@ class MappingController {
                 } else {
                     this.initMergedRegions();
                 }
+                
+                // Import mask mode, default to false
+                this.maskMode = data.maskMode || false;
                 
                 // Mark mesh as dirty since mapping was imported
                 this.isMeshDirty = true;

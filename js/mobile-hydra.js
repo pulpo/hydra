@@ -653,6 +653,7 @@ class MobileHydra {
         const mappingCalibrateBtn = document.getElementById('mapping-calibrate-btn');
         const mappingGridSize = document.getElementById('mapping-grid-size');
         const mappingMergeBtn = document.getElementById('mapping-merge-btn');
+        const mappingMaskBtn = document.getElementById('mapping-mask-btn');
         const mappingResetBtn = document.getElementById('mapping-reset-btn');
         const mappingSaveBtn = document.getElementById('mapping-save-btn');
         const mappingLoadBtn = document.getElementById('mapping-load-btn');
@@ -687,6 +688,13 @@ class MobileHydra {
                 mappingMergeBtn.classList.toggle('active', mergeMode);
                 mappingMergeBtn.classList.toggle('merging', mergeMode);
                 mappingMergeBtn.textContent = mergeMode ? 'Confirm Merge' : 'Merge';
+            }
+            
+            // Update mask mode button
+            if (mappingMaskBtn) {
+                const maskMode = this.mappingController.isMaskMode();
+                mappingMaskBtn.classList.toggle('active', maskMode);
+                mappingMaskBtn.textContent = maskMode ? 'Mask' : 'Warp';
             }
             
             // Update status indicator - show when mapping is active (even without calibrating)
@@ -757,6 +765,14 @@ class MobileHydra {
                     // Enter merge mode
                     this.mappingController.enableMergeMode();
                 }
+                updateMappingUI();
+            });
+        }
+        
+        // Toggle mask mode button
+        if (mappingMaskBtn) {
+            mappingMaskBtn.addEventListener('click', () => {
+                this.mappingController.toggleMaskMode();
                 updateMappingUI();
             });
         }
