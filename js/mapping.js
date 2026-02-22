@@ -27,6 +27,14 @@ class MappingController {
         this.isDragging = false;
         this.dragOffset = { x: 0, y: 0 };
         
+        // Merge mode state
+        this.mergeMode = false;           // Is merge mode active
+        this.mergeSelection = [];         // Array of {row, col} cells selected for merge
+        this.mergedRegions = [];          // Array of merged region definitions
+        
+        // Mask mode state - when true, moving points changes visible area without warping
+        this.maskMode = false;
+        
         // Canvas and WebGL
         this.canvas = null;
         this.gl = null;
@@ -226,6 +234,9 @@ class MappingController {
         
         // Initialize blocked cells (all visible by default)
         this.initBlockedCells();
+        
+        // Initialize merged regions (none by default)
+        this.initMergedRegions();
     }
     
     /**
@@ -248,11 +259,25 @@ class MappingController {
     
     /**
      * Toggle the blocked state of a cell
+     * If the cell is part of a merged region, syncs the blocked state across all cells in the region
      */
     toggleCellBlocked(row, col) {
         if (row >= 0 && row < this.gridSize.rows && 
             col >= 0 && col < this.gridSize.cols) {
-            this.blockedCells[row][col] = !this.blockedCells[row][col];
+            
+            // Check if this cell is part of a merged region
+            const region = this.getCellMergedRegion(row, col);
+            
+            if (region) {
+                // Toggle based on the clicked cell, then sync all cells in the region
+                const newState = !this.blockedCells[row][col];
+                for (const cell of region.cells) {
+                    this.blockedCells[cell.row][cell.col] = newState;
+                }
+            } else {
+                // Individual cell - just toggle it
+                this.blockedCells[row][col] = !this.blockedCells[row][col];
+            }
             
             // Mark mesh as dirty since blocked cells changed
             this.isMeshDirty = true;
@@ -274,6 +299,284 @@ class MappingController {
             return this.blockedCells[row][col];
         }
         return false;
+    }
+    
+    // =========================================================================
+    // Merge Mode Methods
+    // =========================================================================
+    
+    /**
+     * Toggle merge mode on/off
+     * @returns {boolean} New merge mode state
+     */
+    toggleMergeMode() {
+        this.mergeMode = !this.mergeMode;
+        
+        if (!this.mergeMode) {
+            // Exiting merge mode - clear selection
+            this.clearMergeSelection();
+        }
+        
+        if (this.calibrating) {
+            this.drawOverlay();
+        }
+        
+        return this.mergeMode;
+    }
+    
+    /**
+     * Enable merge mode
+     */
+    enableMergeMode() {
+        if (!this.mergeMode) {
+            this.mergeMode = true;
+            if (this.calibrating) {
+                this.drawOverlay();
+            }
+        }
+    }
+    
+    /**
+     * Disable merge mode and clear selection
+     */
+    disableMergeMode() {
+        if (this.mergeMode) {
+            this.mergeMode = false;
+            this.clearMergeSelection();
+            if (this.calibrating) {
+                this.drawOverlay();
+            }
+        }
+    }
+    
+    /**
+     * Check if a cell is in the current merge selection
+     */
+    isCellInMergeSelection(row, col) {
+        return this.mergeSelection.some(c => c.row === row && c.col === col);
+    }
+    
+    /**
+     * Toggle a cell in the merge selection
+     * @returns {boolean} Whether the cell is now selected
+     */
+    toggleCellInMergeSelection(row, col) {
+        const index = this.mergeSelection.findIndex(c => c.row === row && c.col === col);
+        
+        if (index >= 0) {
+            // Remove from selection
+            this.mergeSelection.splice(index, 1);
+            return false;
+        } else {
+            // Add to selection
+            this.mergeSelection.push({ row, col });
+            return true;
+        }
+    }
+    
+    /**
+     * Clear the current merge selection
+     */
+    clearMergeSelection() {
+        this.mergeSelection = [];
+        if (this.calibrating) {
+            this.drawOverlay();
+        }
+    }
+    
+    /**
+     * Get the bounding box of the current merge selection
+     * @returns {Object|null} {minRow, maxRow, minCol, maxCol} or null if empty
+     */
+    getMergeSelectionBounds() {
+        if (this.mergeSelection.length === 0) return null;
+        
+        let minRow = Infinity, maxRow = -Infinity;
+        let minCol = Infinity, maxCol = -Infinity;
+        
+        for (const cell of this.mergeSelection) {
+            minRow = Math.min(minRow, cell.row);
+            maxRow = Math.max(maxRow, cell.row);
+            minCol = Math.min(minCol, cell.col);
+            maxCol = Math.max(maxCol, cell.col);
+        }
+        
+        return { minRow, maxRow, minCol, maxCol };
+    }
+    
+    /**
+     * Check if the current merge selection forms a valid rectangle
+     * @returns {boolean} True if selection is a complete rectangle
+     */
+    isValidRectangularSelection() {
+        if (this.mergeSelection.length < 2) return false;
+        
+        const bounds = this.getMergeSelectionBounds();
+        if (!bounds) return false;
+        
+        // Calculate expected cell count for a complete rectangle
+        const expectedCount = (bounds.maxRow - bounds.minRow + 1) * (bounds.maxCol - bounds.minCol + 1);
+        
+        // Check if we have exactly the right number of cells
+        if (this.mergeSelection.length !== expectedCount) return false;
+        
+        // Verify all cells in the rectangle are selected
+        for (let row = bounds.minRow; row <= bounds.maxRow; row++) {
+            for (let col = bounds.minCol; col <= bounds.maxCol; col++) {
+                if (!this.isCellInMergeSelection(row, col)) {
+                    return false;
+                }
+            }
+        }
+        
+        return true;
+    }
+    
+    /**
+     * Find the merged region that contains a specific cell
+     * @returns {Object|null} The merged region or null
+     */
+    getCellMergedRegion(row, col) {
+        for (const region of this.mergedRegions) {
+            if (region.cells.some(c => c.row === row && c.col === col)) {
+                return region;
+            }
+        }
+        return null;
+    }
+    
+    /**
+     * Check if two cells are in the same merged region
+     */
+    areCellsInSameMergedRegion(row1, col1, row2, col2) {
+        const region1 = this.getCellMergedRegion(row1, col1);
+        const region2 = this.getCellMergedRegion(row2, col2);
+        
+        if (!region1 || !region2) return false;
+        return region1.id === region2.id;
+    }
+    
+    /**
+     * Confirm and create a merged region from the current selection
+     * @returns {Object|null} The created region or null if invalid
+     */
+    confirmMerge() {
+        if (!this.isValidRectangularSelection()) {
+            return null;
+        }
+        
+        const bounds = this.getMergeSelectionBounds();
+        
+        // Check if any selected cells are already in a merged region
+        for (const cell of this.mergeSelection) {
+            if (this.getCellMergedRegion(cell.row, cell.col)) {
+                // Cell already merged - need to unmerge first
+                return null;
+            }
+        }
+        
+        // Create the merged region
+        const region = {
+            id: crypto.randomUUID(),
+            cells: [...this.mergeSelection],
+            bounds: { ...bounds }
+        };
+        
+        this.mergedRegions.push(region);
+        
+        // Clear selection and exit merge mode
+        this.clearMergeSelection();
+        this.mergeMode = false;
+        
+        // Mark mesh as dirty
+        this.isMeshDirty = true;
+        
+        if (this.calibrating) {
+            this.drawOverlay();
+        }
+        
+        return region;
+    }
+    
+    /**
+     * Unmerge a region, returning cells to individual state
+     * @param {string} regionId - The ID of the region to unmerge
+     * @returns {boolean} True if region was found and unmerged
+     */
+    unmergeRegion(regionId) {
+        const index = this.mergedRegions.findIndex(r => r.id === regionId);
+        
+        if (index >= 0) {
+            this.mergedRegions.splice(index, 1);
+            
+            // Mark mesh as dirty
+            this.isMeshDirty = true;
+            
+            if (this.calibrating) {
+                this.drawOverlay();
+            }
+            
+            return true;
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Unmerge the region containing a specific cell
+     * @returns {boolean} True if a region was unmerged
+     */
+    unmergeCellRegion(row, col) {
+        const region = this.getCellMergedRegion(row, col);
+        if (region) {
+            return this.unmergeRegion(region.id);
+        }
+        return false;
+    }
+    
+    /**
+     * Initialize merged regions array (called on reset)
+     */
+    initMergedRegions() {
+        this.mergedRegions = [];
+    }
+    
+    // =========================================================================
+    // Mask Mode Methods
+    // =========================================================================
+    
+    /**
+     * Toggle mask mode on/off
+     * In mask mode, moving control points changes the visible area without warping the texture
+     */
+    toggleMaskMode() {
+        this.maskMode = !this.maskMode;
+        this.isMeshDirty = true;
+        
+        if (this.calibrating) {
+            this.drawOverlay();
+        }
+        
+        return this.maskMode;
+    }
+    
+    /**
+     * Set mask mode explicitly
+     */
+    setMaskMode(enabled) {
+        this.maskMode = enabled;
+        this.isMeshDirty = true;
+        
+        if (this.calibrating) {
+            this.drawOverlay();
+        }
+    }
+    
+    /**
+     * Get current mask mode state
+     */
+    isMaskMode() {
+        return this.maskMode;
     }
     
     /**
@@ -575,7 +878,28 @@ class MappingController {
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
         
-        // First, check if a control point was clicked (pass cached rect)
+        // In merge mode, cell clicks have different behavior
+        if (this.mergeMode) {
+            const cellHit = this.hitTestCell(x, y, rect);
+            
+            if (cellHit) {
+                // Check if cell is already in a merged region
+                const existingRegion = this.getCellMergedRegion(cellHit.row, cellHit.col);
+                
+                if (existingRegion) {
+                    // Clicking a merged region in merge mode - offer to unmerge
+                    // For now, just unmerge it directly
+                    this.unmergeRegion(existingRegion.id);
+                } else {
+                    // Toggle cell in merge selection
+                    this.toggleCellInMergeSelection(cellHit.row, cellHit.col);
+                    this.drawOverlay();
+                }
+            }
+            return;
+        }
+        
+        // Normal mode: First, check if a control point was clicked (pass cached rect)
         const hit = this.hitTest(x, y, rect);
         
         if (hit) {
@@ -630,6 +954,46 @@ class MappingController {
     }
     
     /**
+     * Check if a horizontal line segment between two adjacent columns should be drawn
+     * (not internal to a merged region)
+     */
+    shouldDrawHorizontalLine(row, col) {
+        // This is a horizontal line at row 'row', between columns col and col+1
+        // It's internal if the cells above and below are in the same merged region
+        
+        // Top edge of grid - always draw
+        if (row === 0) return true;
+        // Bottom edge of grid - always draw
+        if (row === this.gridSize.rows) return true;
+        
+        // Check if cells (row-1, col) and (row, col) are in the same merged region
+        const cellAbove = { row: row - 1, col: col };
+        const cellBelow = { row: row, col: col };
+        
+        return !this.areCellsInSameMergedRegion(cellAbove.row, cellAbove.col, cellBelow.row, cellBelow.col);
+    }
+    
+    /**
+     * Check if a vertical line segment between two adjacent rows should be drawn
+     * (not internal to a merged region)
+     */
+    shouldDrawVerticalLine(row, col) {
+        // This is a vertical line at col 'col', between rows row and row+1
+        // It's internal if the cells left and right are in the same merged region
+        
+        // Left edge of grid - always draw
+        if (col === 0) return true;
+        // Right edge of grid - always draw
+        if (col === this.gridSize.cols) return true;
+        
+        // Check if cells (row, col-1) and (row, col) are in the same merged region
+        const cellLeft = { row: row, col: col - 1 };
+        const cellRight = { row: row, col: col };
+        
+        return !this.areCellsInSameMergedRegion(cellLeft.row, cellLeft.col, cellRight.row, cellRight.col);
+    }
+    
+    /**
      * Draw the calibration overlay (grid lines and control points)
      */
     drawOverlay() {
@@ -646,73 +1010,176 @@ class MappingController {
         
         ctx.clearRect(0, 0, rect.width, rect.height);
         
-        // Draw grid lines
-        ctx.strokeStyle = this.gridLineColor;
-        ctx.lineWidth = 2; // Make lines thicker for visibility
-        
-        // Horizontal lines
-        for (let row = 0; row <= this.gridSize.rows; row++) {
+        // Draw merged region fills (subtle background to indicate merged areas)
+        for (const region of this.mergedRegions) {
+            const { minRow, maxRow, minCol, maxCol } = region.bounds;
+            
+            // Get the four outer corners
+            const tl = this.normalizedToPixels(this.controlPoints[minRow][minCol], rect);
+            const tr = this.normalizedToPixels(this.controlPoints[minRow][maxCol + 1], rect);
+            const br = this.normalizedToPixels(this.controlPoints[maxRow + 1][maxCol + 1], rect);
+            const bl = this.normalizedToPixels(this.controlPoints[maxRow + 1][minCol], rect);
+            
+            // Draw subtle fill for merged region
             ctx.beginPath();
-            for (let col = 0; col <= this.gridSize.cols; col++) {
-                const point = this.normalizedToPixels(this.controlPoints[row][col], rect);
-                if (col === 0) {
-                    ctx.moveTo(point.x, point.y);
-                } else {
-                    ctx.lineTo(point.x, point.y);
-                }
-            }
-            ctx.stroke();
+            ctx.moveTo(tl.x, tl.y);
+            ctx.lineTo(tr.x, tr.y);
+            ctx.lineTo(br.x, br.y);
+            ctx.lineTo(bl.x, bl.y);
+            ctx.closePath();
+            ctx.fillStyle = 'rgba(0, 200, 255, 0.1)';
+            ctx.fill();
         }
         
-        // Vertical lines
-        for (let col = 0; col <= this.gridSize.cols; col++) {
-            ctx.beginPath();
-            for (let row = 0; row <= this.gridSize.rows; row++) {
-                const point = this.normalizedToPixels(this.controlPoints[row][col], rect);
-                if (row === 0) {
-                    ctx.moveTo(point.x, point.y);
-                } else {
-                    ctx.lineTo(point.x, point.y);
+        // Draw grid lines (skipping internal lines of merged regions)
+        ctx.strokeStyle = this.gridLineColor;
+        ctx.lineWidth = 2;
+        
+        // Horizontal line segments
+        for (let row = 0; row <= this.gridSize.rows; row++) {
+            for (let col = 0; col < this.gridSize.cols; col++) {
+                if (this.shouldDrawHorizontalLine(row, col)) {
+                    const p1 = this.normalizedToPixels(this.controlPoints[row][col], rect);
+                    const p2 = this.normalizedToPixels(this.controlPoints[row][col + 1], rect);
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(p1.x, p1.y);
+                    ctx.lineTo(p2.x, p2.y);
+                    ctx.stroke();
                 }
             }
-            ctx.stroke();
+        }
+        
+        // Vertical line segments
+        for (let col = 0; col <= this.gridSize.cols; col++) {
+            for (let row = 0; row < this.gridSize.rows; row++) {
+                if (this.shouldDrawVerticalLine(row, col)) {
+                    const p1 = this.normalizedToPixels(this.controlPoints[row][col], rect);
+                    const p2 = this.normalizedToPixels(this.controlPoints[row + 1][col], rect);
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(p1.x, p1.y);
+                    ctx.lineTo(p2.x, p2.y);
+                    ctx.stroke();
+                }
+            }
+        }
+        
+        // Draw merge selection highlight (when in merge mode)
+        if (this.mergeMode && this.mergeSelection.length > 0) {
+            for (const cell of this.mergeSelection) {
+                const tl = this.normalizedToPixels(this.controlPoints[cell.row][cell.col], rect);
+                const tr = this.normalizedToPixels(this.controlPoints[cell.row][cell.col + 1], rect);
+                const br = this.normalizedToPixels(this.controlPoints[cell.row + 1][cell.col + 1], rect);
+                const bl = this.normalizedToPixels(this.controlPoints[cell.row + 1][cell.col], rect);
+                
+                // Fill with selection color
+                ctx.beginPath();
+                ctx.moveTo(tl.x, tl.y);
+                ctx.lineTo(tr.x, tr.y);
+                ctx.lineTo(br.x, br.y);
+                ctx.lineTo(bl.x, bl.y);
+                ctx.closePath();
+                ctx.fillStyle = 'rgba(0, 255, 200, 0.3)';
+                ctx.fill();
+                
+                // Draw border
+                ctx.strokeStyle = 'rgba(0, 255, 200, 0.9)';
+                ctx.lineWidth = 3;
+                ctx.stroke();
+            }
+            
+            // Show validity indicator
+            const isValid = this.isValidRectangularSelection();
+            if (this.mergeSelection.length >= 2) {
+                const bounds = this.getMergeSelectionBounds();
+                const centerX = (this.normalizedToPixels(this.controlPoints[bounds.minRow][bounds.minCol], rect).x +
+                                this.normalizedToPixels(this.controlPoints[bounds.maxRow + 1][bounds.maxCol + 1], rect).x) / 2;
+                const centerY = (this.normalizedToPixels(this.controlPoints[bounds.minRow][bounds.minCol], rect).y +
+                                this.normalizedToPixels(this.controlPoints[bounds.maxRow + 1][bounds.maxCol + 1], rect).y) / 2;
+                
+                ctx.font = 'bold 24px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillStyle = isValid ? 'rgba(0, 255, 100, 0.9)' : 'rgba(255, 100, 100, 0.9)';
+                ctx.fillText(isValid ? '✓' : '✗', centerX, centerY);
+            }
         }
         
         // Draw blocked cells with semi-transparent overlay and X pattern
+        // For merged regions, check if entire region is blocked
+        const drawnMergedRegions = new Set();
+        
         for (let row = 0; row < this.gridSize.rows; row++) {
             for (let col = 0; col < this.gridSize.cols; col++) {
-                if (this.isCellBlocked(row, col)) {
-                    // Get the four corners of this cell
-                    const tl = this.normalizedToPixels(this.controlPoints[row][col], rect);
-                    const tr = this.normalizedToPixels(this.controlPoints[row][col + 1], rect);
-                    const br = this.normalizedToPixels(this.controlPoints[row + 1][col + 1], rect);
-                    const bl = this.normalizedToPixels(this.controlPoints[row + 1][col], rect);
+                const region = this.getCellMergedRegion(row, col);
+                
+                if (region) {
+                    // Cell is part of a merged region
+                    if (drawnMergedRegions.has(region.id)) continue;
+                    drawnMergedRegions.add(region.id);
                     
-                    // Draw semi-transparent black fill
-                    ctx.beginPath();
-                    ctx.moveTo(tl.x, tl.y);
-                    ctx.lineTo(tr.x, tr.y);
-                    ctx.lineTo(br.x, br.y);
-                    ctx.lineTo(bl.x, bl.y);
-                    ctx.closePath();
-                    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-                    ctx.fill();
-                    
-                    // Draw X pattern for visibility
-                    ctx.strokeStyle = 'rgba(255, 50, 50, 0.8)';
-                    ctx.lineWidth = 2;
-                    
-                    // Diagonal line 1: TL to BR
-                    ctx.beginPath();
-                    ctx.moveTo(tl.x, tl.y);
-                    ctx.lineTo(br.x, br.y);
-                    ctx.stroke();
-                    
-                    // Diagonal line 2: TR to BL
-                    ctx.beginPath();
-                    ctx.moveTo(tr.x, tr.y);
-                    ctx.lineTo(bl.x, bl.y);
-                    ctx.stroke();
+                    // Check if the merged region is blocked (check first cell)
+                    const firstCell = region.cells[0];
+                    if (this.isCellBlocked(firstCell.row, firstCell.col)) {
+                        const { minRow, maxRow, minCol, maxCol } = region.bounds;
+                        const tl = this.normalizedToPixels(this.controlPoints[minRow][minCol], rect);
+                        const tr = this.normalizedToPixels(this.controlPoints[minRow][maxCol + 1], rect);
+                        const br = this.normalizedToPixels(this.controlPoints[maxRow + 1][maxCol + 1], rect);
+                        const bl = this.normalizedToPixels(this.controlPoints[maxRow + 1][minCol], rect);
+                        
+                        // Draw semi-transparent black fill
+                        ctx.beginPath();
+                        ctx.moveTo(tl.x, tl.y);
+                        ctx.lineTo(tr.x, tr.y);
+                        ctx.lineTo(br.x, br.y);
+                        ctx.lineTo(bl.x, bl.y);
+                        ctx.closePath();
+                        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+                        ctx.fill();
+                        
+                        // Draw X pattern
+                        ctx.strokeStyle = 'rgba(255, 50, 50, 0.8)';
+                        ctx.lineWidth = 2;
+                        ctx.beginPath();
+                        ctx.moveTo(tl.x, tl.y);
+                        ctx.lineTo(br.x, br.y);
+                        ctx.stroke();
+                        ctx.beginPath();
+                        ctx.moveTo(tr.x, tr.y);
+                        ctx.lineTo(bl.x, bl.y);
+                        ctx.stroke();
+                    }
+                } else {
+                    // Individual cell
+                    if (this.isCellBlocked(row, col)) {
+                        const tl = this.normalizedToPixels(this.controlPoints[row][col], rect);
+                        const tr = this.normalizedToPixels(this.controlPoints[row][col + 1], rect);
+                        const br = this.normalizedToPixels(this.controlPoints[row + 1][col + 1], rect);
+                        const bl = this.normalizedToPixels(this.controlPoints[row + 1][col], rect);
+                        
+                        // Draw semi-transparent black fill
+                        ctx.beginPath();
+                        ctx.moveTo(tl.x, tl.y);
+                        ctx.lineTo(tr.x, tr.y);
+                        ctx.lineTo(br.x, br.y);
+                        ctx.lineTo(bl.x, bl.y);
+                        ctx.closePath();
+                        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+                        ctx.fill();
+                        
+                        // Draw X pattern
+                        ctx.strokeStyle = 'rgba(255, 50, 50, 0.8)';
+                        ctx.lineWidth = 2;
+                        ctx.beginPath();
+                        ctx.moveTo(tl.x, tl.y);
+                        ctx.lineTo(br.x, br.y);
+                        ctx.stroke();
+                        ctx.beginPath();
+                        ctx.moveTo(tr.x, tr.y);
+                        ctx.lineTo(bl.x, bl.y);
+                        ctx.stroke();
+                    }
                 }
             }
         }
@@ -771,8 +1238,60 @@ class MappingController {
     }
     
     /**
+     * Check if a merged region is blocked (all cells blocked)
+     */
+    isMergedRegionBlocked(region) {
+        // A merged region is blocked if its first cell is blocked
+        // (blocking applies to entire region)
+        const firstCell = region.cells[0];
+        return this.isCellBlocked(firstCell.row, firstCell.col);
+    }
+    
+    /**
+     * Calculate UV coordinates for a quad based on mask mode
+     * @private
+     * @param {Object} tl - Top-left control point {x, y}
+     * @param {Object} tr - Top-right control point {x, y}
+     * @param {Object} bl - Bottom-left control point {x, y}
+     * @param {Object} br - Bottom-right control point {x, y}
+     * @param {number} gridMinCol - Left column index in grid
+     * @param {number} gridMaxCol - Right column index in grid (exclusive for single cell, inclusive for merged)
+     * @param {number} gridMinRow - Top row index in grid
+     * @param {number} gridMaxRow - Bottom row index in grid (exclusive for single cell, inclusive for merged)
+     * @returns {Object} UV coordinates {uvTL, uvTR, uvBL, uvBR}
+     */
+    _calculateUVCoords(tl, tr, bl, br, gridMinCol, gridMaxCol, gridMinRow, gridMaxRow) {
+        const { rows, cols } = this.gridSize;
+        
+        if (this.maskMode) {
+            // Mask mode: UVs follow control points (no distortion)
+            return {
+                uvTL: { x: tl.x, y: tl.y },
+                uvTR: { x: tr.x, y: tr.y },
+                uvBL: { x: bl.x, y: bl.y },
+                uvBR: { x: br.x, y: br.y }
+            };
+        } else {
+            // Warp mode: UVs use uniform grid positions (causes stretching)
+            return {
+                uvTL: { x: gridMinCol / cols, y: gridMinRow / rows },
+                uvTR: { x: gridMaxCol / cols, y: gridMinRow / rows },
+                uvBL: { x: gridMinCol / cols, y: gridMaxRow / rows },
+                uvBR: { x: gridMaxCol / cols, y: gridMaxRow / rows }
+            };
+        }
+    }
+    
+    /**
      * Build mesh geometry from control points
      * Returns arrays for positions and texture coordinates
+     * Handles merged regions as single unified quads
+     * 
+     * In Warp Mode (maskMode=false): UVs use uniform grid positions, positions use control points
+     *   -> Moving a point warps/stretches the texture
+     * 
+     * In Mask Mode (maskMode=true): UVs follow control point positions
+     *   -> Moving a point changes visible area without distorting the texture
      */
     buildMesh() {
         const positions = [];
@@ -780,9 +1299,53 @@ class MappingController {
         
         const { rows, cols } = this.gridSize;
         
+        // Track which cells have been processed (as part of merged regions)
+        const processedCells = new Set();
+        
+        // First, process merged regions
+        for (const region of this.mergedRegions) {
+            // Mark all cells in this region as processed (regardless of blocked state)
+            for (const cell of region.cells) {
+                processedCells.add(`${cell.row},${cell.col}`);
+            }
+            
+            // Skip rendering if the merged region is blocked
+            if (this.isMergedRegionBlocked(region)) {
+                continue;
+            }
+            
+            const { minRow, maxRow, minCol, maxCol } = region.bounds;
+            
+            // Get the four outer corners of the merged region
+            const tl = this.controlPoints[minRow][minCol];
+            const tr = this.controlPoints[minRow][maxCol + 1];
+            const bl = this.controlPoints[maxRow + 1][minCol];
+            const br = this.controlPoints[maxRow + 1][maxCol + 1];
+            
+            // Calculate UV coordinates using helper method
+            const { uvTL, uvTR, uvBL, uvBR } = this._calculateUVCoords(
+                tl, tr, bl, br,
+                minCol, maxCol + 1, minRow, maxRow + 1
+            );
+            
+            // Triangle 1: TL, TR, BL
+            positions.push(tl.x, tl.y, tr.x, tr.y, bl.x, bl.y);
+            texCoords.push(uvTL.x, uvTL.y, uvTR.x, uvTR.y, uvBL.x, uvBL.y);
+            
+            // Triangle 2: TR, BR, BL
+            positions.push(tr.x, tr.y, br.x, br.y, bl.x, bl.y);
+            texCoords.push(uvTR.x, uvTR.y, uvBR.x, uvBR.y, uvBL.x, uvBL.y);
+        }
+        
+        // Then, render individual cells (not part of merged regions)
         for (let row = 0; row < rows; row++) {
             for (let col = 0; col < cols; col++) {
-                // Skip blocked cells - they won't render any content
+                // Skip cells that are part of merged regions
+                if (processedCells.has(`${row},${col}`)) {
+                    continue;
+                }
+                
+                // Skip blocked cells
                 if (this.isCellBlocked(row, col)) {
                     continue;
                 }
@@ -793,11 +1356,11 @@ class MappingController {
                 const bl = this.controlPoints[row + 1][col];
                 const br = this.controlPoints[row + 1][col + 1];
                 
-                // UV coordinates (normalized source texture coordinates)
-                const uvTL = { x: col / cols, y: row / rows };
-                const uvTR = { x: (col + 1) / cols, y: row / rows };
-                const uvBL = { x: col / cols, y: (row + 1) / rows };
-                const uvBR = { x: (col + 1) / cols, y: (row + 1) / rows };
+                // Calculate UV coordinates using helper method
+                const { uvTL, uvTR, uvBL, uvBR } = this._calculateUVCoords(
+                    tl, tr, bl, br,
+                    col, col + 1, row, row + 1
+                );
                 
                 // Triangle 1: TL, TR, BL
                 positions.push(tl.x, tl.y, tr.x, tr.y, bl.x, bl.y);
@@ -887,6 +1450,8 @@ class MappingController {
             gridSize: { ...this.gridSize },
             controlPoints: JSON.parse(JSON.stringify(this.controlPoints)),
             blockedCells: JSON.parse(JSON.stringify(this.blockedCells)),
+            mergedRegions: JSON.parse(JSON.stringify(this.mergedRegions)),
+            maskMode: this.maskMode,
             created: Date.now()
         };
         
@@ -916,6 +1481,16 @@ class MappingController {
         } else {
             this.initBlockedCells();
         }
+        
+        // Load merged regions, or initialize if not present (for old presets)
+        if (preset.mergedRegions) {
+            this.mergedRegions = JSON.parse(JSON.stringify(preset.mergedRegions));
+        } else {
+            this.initMergedRegions();
+        }
+        
+        // Load mask mode, default to false for old presets
+        this.maskMode = preset.maskMode || false;
         
         // Mark mesh as dirty since preset was loaded
         this.isMeshDirty = true;
@@ -988,8 +1563,115 @@ class MappingController {
             gridSize: this.gridSize,
             controlPoints: this.controlPoints,
             blockedCells: this.blockedCells,
+            mergedRegions: this.mergedRegions,
+            maskMode: this.maskMode,
             exported: Date.now()
         }, null, 2);
+    }
+    
+    /**
+     * Validate imported mapping data to prevent DoS and ensure data integrity
+     * @private
+     */
+    _validateImportData(data) {
+        // Maximum allowed grid size to prevent DoS
+        const MAX_GRID_SIZE = 100;
+        const MIN_GRID_SIZE = 1;
+        
+        // Validate gridSize
+        if (!data.gridSize || typeof data.gridSize !== 'object') {
+            return { valid: false, error: 'Missing or invalid gridSize' };
+        }
+        
+        const { rows, cols } = data.gridSize;
+        if (typeof rows !== 'number' || typeof cols !== 'number') {
+            return { valid: false, error: 'gridSize rows/cols must be numbers' };
+        }
+        if (rows < MIN_GRID_SIZE || rows > MAX_GRID_SIZE || 
+            cols < MIN_GRID_SIZE || cols > MAX_GRID_SIZE) {
+            return { valid: false, error: `gridSize must be between ${MIN_GRID_SIZE} and ${MAX_GRID_SIZE}` };
+        }
+        if (!Number.isInteger(rows) || !Number.isInteger(cols)) {
+            return { valid: false, error: 'gridSize rows/cols must be integers' };
+        }
+        
+        // Validate controlPoints
+        if (!data.controlPoints || !Array.isArray(data.controlPoints)) {
+            return { valid: false, error: 'Missing or invalid controlPoints' };
+        }
+        if (data.controlPoints.length !== rows + 1) {
+            return { valid: false, error: 'controlPoints row count mismatch' };
+        }
+        for (let r = 0; r <= rows; r++) {
+            if (!Array.isArray(data.controlPoints[r]) || data.controlPoints[r].length !== cols + 1) {
+                return { valid: false, error: `controlPoints column count mismatch at row ${r}` };
+            }
+            for (let c = 0; c <= cols; c++) {
+                const pt = data.controlPoints[r][c];
+                if (!pt || typeof pt.x !== 'number' || typeof pt.y !== 'number') {
+                    return { valid: false, error: `Invalid control point at [${r}][${c}]` };
+                }
+            }
+        }
+        
+        // Validate blockedCells if present
+        if (data.blockedCells !== undefined) {
+            if (!Array.isArray(data.blockedCells) || data.blockedCells.length !== rows) {
+                return { valid: false, error: 'blockedCells row count mismatch' };
+            }
+            for (let r = 0; r < rows; r++) {
+                if (!Array.isArray(data.blockedCells[r]) || data.blockedCells[r].length !== cols) {
+                    return { valid: false, error: `blockedCells column count mismatch at row ${r}` };
+                }
+                for (let c = 0; c < cols; c++) {
+                    if (typeof data.blockedCells[r][c] !== 'boolean') {
+                        return { valid: false, error: `blockedCells[${r}][${c}] must be boolean` };
+                    }
+                }
+            }
+        }
+        
+        // Validate mergedRegions if present
+        if (data.mergedRegions !== undefined) {
+            if (!Array.isArray(data.mergedRegions)) {
+                return { valid: false, error: 'mergedRegions must be an array' };
+            }
+            for (let i = 0; i < data.mergedRegions.length; i++) {
+                const region = data.mergedRegions[i];
+                if (!region || typeof region !== 'object') {
+                    return { valid: false, error: `mergedRegions[${i}] is invalid` };
+                }
+                if (typeof region.id !== 'string') {
+                    return { valid: false, error: `mergedRegions[${i}].id must be a string` };
+                }
+                if (!Array.isArray(region.cells) || region.cells.length === 0) {
+                    return { valid: false, error: `mergedRegions[${i}].cells must be a non-empty array` };
+                }
+                for (const cell of region.cells) {
+                    if (!cell || typeof cell.row !== 'number' || typeof cell.col !== 'number') {
+                        return { valid: false, error: `Invalid cell in mergedRegions[${i}]` };
+                    }
+                    if (cell.row < 0 || cell.row >= rows || cell.col < 0 || cell.col >= cols) {
+                        return { valid: false, error: `Cell out of bounds in mergedRegions[${i}]` };
+                    }
+                }
+                if (!region.bounds || typeof region.bounds !== 'object') {
+                    return { valid: false, error: `mergedRegions[${i}].bounds is invalid` };
+                }
+                const { minRow, maxRow, minCol, maxCol } = region.bounds;
+                if (typeof minRow !== 'number' || typeof maxRow !== 'number' ||
+                    typeof minCol !== 'number' || typeof maxCol !== 'number') {
+                    return { valid: false, error: `mergedRegions[${i}].bounds values must be numbers` };
+                }
+            }
+        }
+        
+        // Validate maskMode if present
+        if (data.maskMode !== undefined && typeof data.maskMode !== 'boolean') {
+            return { valid: false, error: 'maskMode must be a boolean' };
+        }
+        
+        return { valid: true };
     }
     
     /**
@@ -999,16 +1681,33 @@ class MappingController {
         try {
             const data = JSON.parse(jsonString);
             
+            // Validate the imported data before applying
+            const validation = this._validateImportData(data);
+            if (!validation.valid) {
+                console.error('Import validation failed:', validation.error);
+                return false;
+            }
+            
             if (data.gridSize && data.controlPoints) {
-                this.gridSize = data.gridSize;
-                this.controlPoints = data.controlPoints;
+                this.gridSize = { rows: data.gridSize.rows, cols: data.gridSize.cols };
+                this.controlPoints = JSON.parse(JSON.stringify(data.controlPoints));
                 
                 // Import blocked cells, or initialize if not present
                 if (data.blockedCells) {
-                    this.blockedCells = data.blockedCells;
+                    this.blockedCells = JSON.parse(JSON.stringify(data.blockedCells));
                 } else {
                     this.initBlockedCells();
                 }
+                
+                // Import merged regions, or initialize if not present
+                if (data.mergedRegions) {
+                    this.mergedRegions = JSON.parse(JSON.stringify(data.mergedRegions));
+                } else {
+                    this.initMergedRegions();
+                }
+                
+                // Import mask mode, default to false
+                this.maskMode = data.maskMode === true;
                 
                 // Mark mesh as dirty since mapping was imported
                 this.isMeshDirty = true;

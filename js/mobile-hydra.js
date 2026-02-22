@@ -652,6 +652,8 @@ class MobileHydra {
         const mappingStatus = document.getElementById('mapping-status');
         const mappingCalibrateBtn = document.getElementById('mapping-calibrate-btn');
         const mappingGridSize = document.getElementById('mapping-grid-size');
+        const mappingMergeBtn = document.getElementById('mapping-merge-btn');
+        const mappingMaskBtn = document.getElementById('mapping-mask-btn');
         const mappingResetBtn = document.getElementById('mapping-reset-btn');
         const mappingSaveBtn = document.getElementById('mapping-save-btn');
         const mappingLoadBtn = document.getElementById('mapping-load-btn');
@@ -668,6 +670,7 @@ class MobileHydra {
         const updateMappingUI = () => {
             const enabled = this.mappingController.enabled;
             const calibrating = this.mappingController.calibrating;
+            const mergeMode = this.mappingController.mergeMode;
             
             // Update toggle button
             mappingToggleBtn.classList.toggle('active', enabled && !calibrating);
@@ -680,10 +683,28 @@ class MobileHydra {
             mappingCalibrateBtn.classList.toggle('calibrating', calibrating);
             mappingCalibrateBtn.textContent = calibrating ? 'Done Calibrating' : 'Calibrate';
             
+            // Update merge button
+            if (mappingMergeBtn) {
+                mappingMergeBtn.classList.toggle('active', mergeMode);
+                mappingMergeBtn.classList.toggle('merging', mergeMode);
+                mappingMergeBtn.textContent = mergeMode ? 'Confirm Merge' : 'Merge';
+            }
+            
+            // Update mask mode button
+            if (mappingMaskBtn) {
+                const maskMode = this.mappingController.isMaskMode();
+                mappingMaskBtn.classList.toggle('active', maskMode);
+                mappingMaskBtn.textContent = maskMode ? 'Mask' : 'Warp';
+            }
+            
             // Update status indicator - show when mapping is active (even without calibrating)
             mappingStatus.classList.toggle('active', enabled);
             mappingStatus.classList.toggle('calibrating', calibrating);
-            mappingStatus.textContent = calibrating ? 'Calibrating...' : (enabled ? 'Mapping Active' : '');
+            if (mergeMode) {
+                mappingStatus.textContent = 'Merge Mode - Select cells';
+            } else {
+                mappingStatus.textContent = calibrating ? 'Calibrating...' : (enabled ? 'Mapping Active' : '');
+            }
         };
         
         // Toggle mapping mode (🎯 button)
@@ -723,28 +744,54 @@ class MobileHydra {
             });
         }
         
+        // Merge cells button
+        if (mappingMergeBtn) {
+            mappingMergeBtn.addEventListener('click', () => {
+                if (this.mappingController.mergeMode) {
+                    // Already in merge mode - try to confirm merge
+                    if (this.mappingController.mergeSelection.length < 2) {
+                        // Not enough cells selected - just exit merge mode
+                        this.mappingController.disableMergeMode();
+                    } else if (this.mappingController.isValidRectangularSelection()) {
+                        // Valid selection - confirm merge
+                        this.mappingController.confirmMerge();
+                    } else {
+                        // Invalid selection - show error in status
+                        mappingStatus.textContent = 'Select a rectangle!';
+                        setTimeout(() => updateMappingUI(), 1500);
+                        return;
+                    }
+                } else {
+                    // Enter merge mode
+                    this.mappingController.enableMergeMode();
+                }
+                updateMappingUI();
+            });
+        }
+        
+        // Toggle mask mode button
+        if (mappingMaskBtn) {
+            mappingMaskBtn.addEventListener('click', () => {
+                this.mappingController.toggleMaskMode();
+                updateMappingUI();
+            });
+        }
+        
+        // Track modal mode to prevent handler conflicts
+        // Using an object to ensure closure captures by reference, not value
+        const modalState = { mode: 'save' }; // 'save' or 'reset'
+        
         // Reset grid - use modal instead of confirm()
         if (mappingResetBtn) {
             mappingResetBtn.addEventListener('click', () => {
                 // Use the mapping preset modal for confirmation
+                modalState.mode = 'reset';
+                console.log('Reset button clicked, setting mode to:', modalState.mode);
                 mappingModalTitle.textContent = 'Reset Grid?';
                 mappingPresetList.innerHTML = '<div style="text-align: center; color: #ccc; padding: 20px;">This will reset the grid to the default rectangle and clear all adjustments.</div>';
                 mappingSaveActions.classList.remove('hide');
                 mappingPresetName.style.display = 'none';
                 mappingPresetSaveConfirm.textContent = 'Reset';
-                mappingPresetSaveConfirm.onclick = () => {
-                    this.mappingController.resetGrid();
-                    // Re-enter calibration to show the reset grid
-                    if (!this.mappingController.calibrating) {
-                        this.mappingController.startCalibration();
-                        updateMappingUI();
-                    }
-                    mappingPresetModal.classList.add('hide');
-                    // Restore modal state
-                    mappingPresetName.style.display = '';
-                    mappingPresetSaveConfirm.textContent = 'Save';
-                    mappingPresetSaveConfirm.onclick = null;
-                };
                 mappingPresetModal.classList.remove('hide');
             });
         }
@@ -752,23 +799,54 @@ class MobileHydra {
         // Save preset
         if (mappingSaveBtn) {
             mappingSaveBtn.addEventListener('click', () => {
+                modalState.mode = 'save';
+                console.log('Save button clicked, setting mode to:', modalState.mode);
                 mappingModalTitle.textContent = 'Save Mapping Preset';
                 mappingSaveActions.classList.remove('hide');
+                mappingPresetName.style.display = '';
                 mappingPresetName.value = '';
+                mappingPresetSaveConfirm.textContent = 'Save';
                 this.populateMappingPresetList(mappingPresetList, false);
                 mappingPresetModal.classList.remove('hide');
             });
         }
         
-        // Confirm save preset
+        // Confirm save/reset preset - handles both modes
         if (mappingPresetSaveConfirm) {
-            mappingPresetSaveConfirm.addEventListener('click', () => {
-                const name = mappingPresetName.value.trim();
-                if (name) {
-                    this.mappingController.savePreset(name);
+            mappingPresetSaveConfirm.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                console.log('Confirm button clicked, current mode:', modalState.mode);
+                
+                if (modalState.mode === 'reset') {
+                    // Reset mode - reset the grid
+                    console.log('Executing reset...');
+                    this.mappingController.resetGrid();
+                    
+                    if (this.mappingController.calibrating) {
+                        // Already calibrating - just redraw the overlay to show reset grid
+                        this.mappingController.drawOverlay();
+                    } else {
+                        // Not calibrating - start calibration to show the reset grid
+                        this.mappingController.startCalibration();
+                        updateMappingUI();
+                    }
                     mappingPresetModal.classList.add('hide');
+                    // Restore modal state for next use
+                    mappingPresetName.style.display = '';
+                    mappingPresetSaveConfirm.textContent = 'Save';
+                    modalState.mode = 'save';
                 } else {
-                    alert('Please enter a preset name');
+                    // Save mode - save the preset
+                    console.log('Executing save...');
+                    const name = mappingPresetName.value.trim();
+                    if (name) {
+                        this.mappingController.savePreset(name);
+                        mappingPresetModal.classList.add('hide');
+                    } else {
+                        alert('Please enter a preset name');
+                    }
                 }
             });
         }
