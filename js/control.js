@@ -690,29 +690,30 @@ class HydraController {
          slot.classList.add('loaded');
      }
     
-    uploadVideoFile(file) {
-        if (!file) return;
-        
-        this.showStatus(`Uploading ${file.name}...`, 'info');
-        
-        // TODO: Implement file upload via WebSocket or HTTP
-        console.log('Uploading file:', file.name);
-        
-        this.send({
-            type: 'file_upload',
-            action: 'video',
-            filename: file.name,
-            size: file.size,
-            type: file.type
-        });
-    }
+     uploadVideoFile(file) {
+         if (!file) return;
+         
+         const slot = this.state.video.currentSlot !== null ? this.state.video.currentSlot : 0;
+         this.showStatus(`Uploading ${file.name} to slot ${slot + 1}...`, 'info');
+         
+         console.log('Uploading file:', file.name, 'to slot:', slot);
+         
+         this.send({
+             type: 'file_upload',
+             action: 'video',
+             filename: file.name,
+             size: file.size,
+             type: file.type,
+             slot: slot
+         });
+     }
     
      loadVideoURL(url) {
-         this.showStatus(`Loading video from URL...`, 'info');
+         const slot = this.state.video.currentSlot !== null ? this.state.video.currentSlot : 0;
+         this.showStatus(`Loading video to slot ${slot + 1}...`, 'info');
          document.getElementById('video-url').value = '';
          
-         // Use currently selected slot, or default to slot 0
-         const slot = this.state.video.currentSlot || 0;
+         console.log('📤 loadVideoURL: slot=', slot, 'currentSlot=', this.state.video.currentSlot);
          
          this.send({
              type: 'video',

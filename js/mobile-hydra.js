@@ -1992,15 +1992,9 @@ class MobileHydra {
                 break;
                 
             case 'load_url':
-                // Find first empty slot
-                let targetSlot = 0;
-                for (let i = 0; i < this.videoSlots.length; i++) {
-                    if (!this.videoSlots[i]) {
-                        targetSlot = i;
-                        break;
-                    }
-                }
-                this.loadVideoToSlot(targetSlot, message.url, 'Remote Video', message.url.toLowerCase().includes('.gif'));
+                const slotIndex = message.slot !== undefined ? message.slot : 0;
+                console.log('📥 Remote load_url: loading to slot', slotIndex, '(message.slot=', message.slot, ')');
+                this.loadVideoToSlot(slotIndex, message.url, 'Remote Video', message.url.toLowerCase().includes('.gif'));
                 break;
         }
     }
