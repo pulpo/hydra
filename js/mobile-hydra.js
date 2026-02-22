@@ -778,13 +778,15 @@ class MobileHydra {
         }
         
         // Track modal mode to prevent handler conflicts
-        let mappingModalMode = 'save'; // 'save' or 'reset'
+        // Using an object to ensure closure captures by reference, not value
+        const modalState = { mode: 'save' }; // 'save' or 'reset'
         
         // Reset grid - use modal instead of confirm()
         if (mappingResetBtn) {
             mappingResetBtn.addEventListener('click', () => {
                 // Use the mapping preset modal for confirmation
-                mappingModalMode = 'reset';
+                modalState.mode = 'reset';
+                console.log('Reset button clicked, setting mode to:', modalState.mode);
                 mappingModalTitle.textContent = 'Reset Grid?';
                 mappingPresetList.innerHTML = '<div style="text-align: center; color: #ccc; padding: 20px;">This will reset the grid to the default rectangle and clear all adjustments.</div>';
                 mappingSaveActions.classList.remove('hide');
@@ -797,7 +799,8 @@ class MobileHydra {
         // Save preset
         if (mappingSaveBtn) {
             mappingSaveBtn.addEventListener('click', () => {
-                mappingModalMode = 'save';
+                modalState.mode = 'save';
+                console.log('Save button clicked, setting mode to:', modalState.mode);
                 mappingModalTitle.textContent = 'Save Mapping Preset';
                 mappingSaveActions.classList.remove('hide');
                 mappingPresetName.style.display = '';
@@ -810,12 +813,22 @@ class MobileHydra {
         
         // Confirm save/reset preset - handles both modes
         if (mappingPresetSaveConfirm) {
-            mappingPresetSaveConfirm.addEventListener('click', () => {
-                if (mappingModalMode === 'reset') {
+            mappingPresetSaveConfirm.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                console.log('Confirm button clicked, current mode:', modalState.mode);
+                
+                if (modalState.mode === 'reset') {
                     // Reset mode - reset the grid
+                    console.log('Executing reset...');
                     this.mappingController.resetGrid();
-                    // Re-enter calibration to show the reset grid
-                    if (!this.mappingController.calibrating) {
+                    
+                    if (this.mappingController.calibrating) {
+                        // Already calibrating - just redraw the overlay to show reset grid
+                        this.mappingController.drawOverlay();
+                    } else {
+                        // Not calibrating - start calibration to show the reset grid
                         this.mappingController.startCalibration();
                         updateMappingUI();
                     }
@@ -823,9 +836,10 @@ class MobileHydra {
                     // Restore modal state for next use
                     mappingPresetName.style.display = '';
                     mappingPresetSaveConfirm.textContent = 'Save';
-                    mappingModalMode = 'save';
+                    modalState.mode = 'save';
                 } else {
                     // Save mode - save the preset
+                    console.log('Executing save...');
                     const name = mappingPresetName.value.trim();
                     if (name) {
                         this.mappingController.savePreset(name);
