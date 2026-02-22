@@ -777,28 +777,19 @@ class MobileHydra {
             });
         }
         
+        // Track modal mode to prevent handler conflicts
+        let mappingModalMode = 'save'; // 'save' or 'reset'
+        
         // Reset grid - use modal instead of confirm()
         if (mappingResetBtn) {
             mappingResetBtn.addEventListener('click', () => {
                 // Use the mapping preset modal for confirmation
+                mappingModalMode = 'reset';
                 mappingModalTitle.textContent = 'Reset Grid?';
                 mappingPresetList.innerHTML = '<div style="text-align: center; color: #ccc; padding: 20px;">This will reset the grid to the default rectangle and clear all adjustments.</div>';
                 mappingSaveActions.classList.remove('hide');
                 mappingPresetName.style.display = 'none';
                 mappingPresetSaveConfirm.textContent = 'Reset';
-                mappingPresetSaveConfirm.onclick = () => {
-                    this.mappingController.resetGrid();
-                    // Re-enter calibration to show the reset grid
-                    if (!this.mappingController.calibrating) {
-                        this.mappingController.startCalibration();
-                        updateMappingUI();
-                    }
-                    mappingPresetModal.classList.add('hide');
-                    // Restore modal state
-                    mappingPresetName.style.display = '';
-                    mappingPresetSaveConfirm.textContent = 'Save';
-                    mappingPresetSaveConfirm.onclick = null;
-                };
                 mappingPresetModal.classList.remove('hide');
             });
         }
@@ -806,23 +797,42 @@ class MobileHydra {
         // Save preset
         if (mappingSaveBtn) {
             mappingSaveBtn.addEventListener('click', () => {
+                mappingModalMode = 'save';
                 mappingModalTitle.textContent = 'Save Mapping Preset';
                 mappingSaveActions.classList.remove('hide');
+                mappingPresetName.style.display = '';
                 mappingPresetName.value = '';
+                mappingPresetSaveConfirm.textContent = 'Save';
                 this.populateMappingPresetList(mappingPresetList, false);
                 mappingPresetModal.classList.remove('hide');
             });
         }
         
-        // Confirm save preset
+        // Confirm save/reset preset - handles both modes
         if (mappingPresetSaveConfirm) {
             mappingPresetSaveConfirm.addEventListener('click', () => {
-                const name = mappingPresetName.value.trim();
-                if (name) {
-                    this.mappingController.savePreset(name);
+                if (mappingModalMode === 'reset') {
+                    // Reset mode - reset the grid
+                    this.mappingController.resetGrid();
+                    // Re-enter calibration to show the reset grid
+                    if (!this.mappingController.calibrating) {
+                        this.mappingController.startCalibration();
+                        updateMappingUI();
+                    }
                     mappingPresetModal.classList.add('hide');
+                    // Restore modal state for next use
+                    mappingPresetName.style.display = '';
+                    mappingPresetSaveConfirm.textContent = 'Save';
+                    mappingModalMode = 'save';
                 } else {
-                    alert('Please enter a preset name');
+                    // Save mode - save the preset
+                    const name = mappingPresetName.value.trim();
+                    if (name) {
+                        this.mappingController.savePreset(name);
+                        mappingPresetModal.classList.add('hide');
+                    } else {
+                        alert('Please enter a preset name');
+                    }
                 }
             });
         }
