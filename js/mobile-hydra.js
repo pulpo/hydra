@@ -1992,9 +1992,9 @@ class MobileHydra {
                 break;
                 
             case 'load_url':
-                // Use the slot specified by control panel
-                const targetSlot = message.slot !== undefined ? message.slot : 0;
-                this.loadVideoToSlot(targetSlot, message.url, 'Remote Video', message.url.toLowerCase().includes('.gif'));
+                const slotIndex = message.slot !== undefined ? message.slot : 0;
+                console.log('📥 Remote load_url: loading to slot', slotIndex, '(message.slot=', message.slot, ')');
+                this.loadVideoToSlot(slotIndex, message.url, 'Remote Video', message.url.toLowerCase().includes('.gif'));
                 break;
         }
     }
