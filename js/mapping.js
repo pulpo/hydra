@@ -259,11 +259,25 @@ class MappingController {
     
     /**
      * Toggle the blocked state of a cell
+     * If the cell is part of a merged region, syncs the blocked state across all cells in the region
      */
     toggleCellBlocked(row, col) {
         if (row >= 0 && row < this.gridSize.rows && 
             col >= 0 && col < this.gridSize.cols) {
-            this.blockedCells[row][col] = !this.blockedCells[row][col];
+            
+            // Check if this cell is part of a merged region
+            const region = this.getCellMergedRegion(row, col);
+            
+            if (region) {
+                // Toggle based on the clicked cell, then sync all cells in the region
+                const newState = !this.blockedCells[row][col];
+                for (const cell of region.cells) {
+                    this.blockedCells[cell.row][cell.col] = newState;
+                }
+            } else {
+                // Individual cell - just toggle it
+                this.blockedCells[row][col] = !this.blockedCells[row][col];
+            }
             
             // Mark mesh as dirty since blocked cells changed
             this.isMeshDirty = true;
@@ -463,7 +477,7 @@ class MappingController {
         
         // Create the merged region
         const region = {
-            id: 'merge_' + Date.now(),
+            id: crypto.randomUUID(),
             cells: [...this.mergeSelection],
             bounds: { ...bounds }
         };
@@ -1234,6 +1248,41 @@ class MappingController {
     }
     
     /**
+     * Calculate UV coordinates for a quad based on mask mode
+     * @private
+     * @param {Object} tl - Top-left control point {x, y}
+     * @param {Object} tr - Top-right control point {x, y}
+     * @param {Object} bl - Bottom-left control point {x, y}
+     * @param {Object} br - Bottom-right control point {x, y}
+     * @param {number} gridMinCol - Left column index in grid
+     * @param {number} gridMaxCol - Right column index in grid (exclusive for single cell, inclusive for merged)
+     * @param {number} gridMinRow - Top row index in grid
+     * @param {number} gridMaxRow - Bottom row index in grid (exclusive for single cell, inclusive for merged)
+     * @returns {Object} UV coordinates {uvTL, uvTR, uvBL, uvBR}
+     */
+    _calculateUVCoords(tl, tr, bl, br, gridMinCol, gridMaxCol, gridMinRow, gridMaxRow) {
+        const { rows, cols } = this.gridSize;
+        
+        if (this.maskMode) {
+            // Mask mode: UVs follow control points (no distortion)
+            return {
+                uvTL: { x: tl.x, y: tl.y },
+                uvTR: { x: tr.x, y: tr.y },
+                uvBL: { x: bl.x, y: bl.y },
+                uvBR: { x: br.x, y: br.y }
+            };
+        } else {
+            // Warp mode: UVs use uniform grid positions (causes stretching)
+            return {
+                uvTL: { x: gridMinCol / cols, y: gridMinRow / rows },
+                uvTR: { x: gridMaxCol / cols, y: gridMinRow / rows },
+                uvBL: { x: gridMinCol / cols, y: gridMaxRow / rows },
+                uvBR: { x: gridMaxCol / cols, y: gridMaxRow / rows }
+            };
+        }
+    }
+    
+    /**
      * Build mesh geometry from control points
      * Returns arrays for positions and texture coordinates
      * Handles merged regions as single unified quads
@@ -1253,14 +1302,15 @@ class MappingController {
         // Track which cells have been processed (as part of merged regions)
         const processedCells = new Set();
         
-        // First, render merged regions
+        // First, process merged regions
         for (const region of this.mergedRegions) {
-            // Skip blocked merged regions
+            // Mark all cells in this region as processed (regardless of blocked state)
+            for (const cell of region.cells) {
+                processedCells.add(`${cell.row},${cell.col}`);
+            }
+            
+            // Skip rendering if the merged region is blocked
             if (this.isMergedRegionBlocked(region)) {
-                // Mark cells as processed so they're skipped later
-                for (const cell of region.cells) {
-                    processedCells.add(`${cell.row},${cell.col}`);
-                }
                 continue;
             }
             
@@ -1272,21 +1322,11 @@ class MappingController {
             const bl = this.controlPoints[maxRow + 1][minCol];
             const br = this.controlPoints[maxRow + 1][maxCol + 1];
             
-            // UV coordinates: in mask mode, use control point positions; in warp mode, use uniform grid
-            let uvTL, uvTR, uvBL, uvBR;
-            if (this.maskMode) {
-                // Mask mode: UVs follow control points (no distortion)
-                uvTL = { x: tl.x, y: tl.y };
-                uvTR = { x: tr.x, y: tr.y };
-                uvBL = { x: bl.x, y: bl.y };
-                uvBR = { x: br.x, y: br.y };
-            } else {
-                // Warp mode: UVs use uniform grid positions (causes stretching)
-                uvTL = { x: minCol / cols, y: minRow / rows };
-                uvTR = { x: (maxCol + 1) / cols, y: minRow / rows };
-                uvBL = { x: minCol / cols, y: (maxRow + 1) / rows };
-                uvBR = { x: (maxCol + 1) / cols, y: (maxRow + 1) / rows };
-            }
+            // Calculate UV coordinates using helper method
+            const { uvTL, uvTR, uvBL, uvBR } = this._calculateUVCoords(
+                tl, tr, bl, br,
+                minCol, maxCol + 1, minRow, maxRow + 1
+            );
             
             // Triangle 1: TL, TR, BL
             positions.push(tl.x, tl.y, tr.x, tr.y, bl.x, bl.y);
@@ -1295,11 +1335,6 @@ class MappingController {
             // Triangle 2: TR, BR, BL
             positions.push(tr.x, tr.y, br.x, br.y, bl.x, bl.y);
             texCoords.push(uvTR.x, uvTR.y, uvBR.x, uvBR.y, uvBL.x, uvBL.y);
-            
-            // Mark all cells in this region as processed
-            for (const cell of region.cells) {
-                processedCells.add(`${cell.row},${cell.col}`);
-            }
         }
         
         // Then, render individual cells (not part of merged regions)
@@ -1321,21 +1356,11 @@ class MappingController {
                 const bl = this.controlPoints[row + 1][col];
                 const br = this.controlPoints[row + 1][col + 1];
                 
-                // UV coordinates: in mask mode, use control point positions; in warp mode, use uniform grid
-                let uvTL, uvTR, uvBL, uvBR;
-                if (this.maskMode) {
-                    // Mask mode: UVs follow control points (no distortion)
-                    uvTL = { x: tl.x, y: tl.y };
-                    uvTR = { x: tr.x, y: tr.y };
-                    uvBL = { x: bl.x, y: bl.y };
-                    uvBR = { x: br.x, y: br.y };
-                } else {
-                    // Warp mode: UVs use uniform grid positions (causes stretching)
-                    uvTL = { x: col / cols, y: row / rows };
-                    uvTR = { x: (col + 1) / cols, y: row / rows };
-                    uvBL = { x: col / cols, y: (row + 1) / rows };
-                    uvBR = { x: (col + 1) / cols, y: (row + 1) / rows };
-                }
+                // Calculate UV coordinates using helper method
+                const { uvTL, uvTR, uvBL, uvBR } = this._calculateUVCoords(
+                    tl, tr, bl, br,
+                    col, col + 1, row, row + 1
+                );
                 
                 // Triangle 1: TL, TR, BL
                 positions.push(tl.x, tl.y, tr.x, tr.y, bl.x, bl.y);
@@ -1545,32 +1570,144 @@ class MappingController {
     }
     
     /**
+     * Validate imported mapping data to prevent DoS and ensure data integrity
+     * @private
+     */
+    _validateImportData(data) {
+        // Maximum allowed grid size to prevent DoS
+        const MAX_GRID_SIZE = 100;
+        const MIN_GRID_SIZE = 1;
+        
+        // Validate gridSize
+        if (!data.gridSize || typeof data.gridSize !== 'object') {
+            return { valid: false, error: 'Missing or invalid gridSize' };
+        }
+        
+        const { rows, cols } = data.gridSize;
+        if (typeof rows !== 'number' || typeof cols !== 'number') {
+            return { valid: false, error: 'gridSize rows/cols must be numbers' };
+        }
+        if (rows < MIN_GRID_SIZE || rows > MAX_GRID_SIZE || 
+            cols < MIN_GRID_SIZE || cols > MAX_GRID_SIZE) {
+            return { valid: false, error: `gridSize must be between ${MIN_GRID_SIZE} and ${MAX_GRID_SIZE}` };
+        }
+        if (!Number.isInteger(rows) || !Number.isInteger(cols)) {
+            return { valid: false, error: 'gridSize rows/cols must be integers' };
+        }
+        
+        // Validate controlPoints
+        if (!data.controlPoints || !Array.isArray(data.controlPoints)) {
+            return { valid: false, error: 'Missing or invalid controlPoints' };
+        }
+        if (data.controlPoints.length !== rows + 1) {
+            return { valid: false, error: 'controlPoints row count mismatch' };
+        }
+        for (let r = 0; r <= rows; r++) {
+            if (!Array.isArray(data.controlPoints[r]) || data.controlPoints[r].length !== cols + 1) {
+                return { valid: false, error: `controlPoints column count mismatch at row ${r}` };
+            }
+            for (let c = 0; c <= cols; c++) {
+                const pt = data.controlPoints[r][c];
+                if (!pt || typeof pt.x !== 'number' || typeof pt.y !== 'number') {
+                    return { valid: false, error: `Invalid control point at [${r}][${c}]` };
+                }
+            }
+        }
+        
+        // Validate blockedCells if present
+        if (data.blockedCells !== undefined) {
+            if (!Array.isArray(data.blockedCells) || data.blockedCells.length !== rows) {
+                return { valid: false, error: 'blockedCells row count mismatch' };
+            }
+            for (let r = 0; r < rows; r++) {
+                if (!Array.isArray(data.blockedCells[r]) || data.blockedCells[r].length !== cols) {
+                    return { valid: false, error: `blockedCells column count mismatch at row ${r}` };
+                }
+                for (let c = 0; c < cols; c++) {
+                    if (typeof data.blockedCells[r][c] !== 'boolean') {
+                        return { valid: false, error: `blockedCells[${r}][${c}] must be boolean` };
+                    }
+                }
+            }
+        }
+        
+        // Validate mergedRegions if present
+        if (data.mergedRegions !== undefined) {
+            if (!Array.isArray(data.mergedRegions)) {
+                return { valid: false, error: 'mergedRegions must be an array' };
+            }
+            for (let i = 0; i < data.mergedRegions.length; i++) {
+                const region = data.mergedRegions[i];
+                if (!region || typeof region !== 'object') {
+                    return { valid: false, error: `mergedRegions[${i}] is invalid` };
+                }
+                if (typeof region.id !== 'string') {
+                    return { valid: false, error: `mergedRegions[${i}].id must be a string` };
+                }
+                if (!Array.isArray(region.cells) || region.cells.length === 0) {
+                    return { valid: false, error: `mergedRegions[${i}].cells must be a non-empty array` };
+                }
+                for (const cell of region.cells) {
+                    if (!cell || typeof cell.row !== 'number' || typeof cell.col !== 'number') {
+                        return { valid: false, error: `Invalid cell in mergedRegions[${i}]` };
+                    }
+                    if (cell.row < 0 || cell.row >= rows || cell.col < 0 || cell.col >= cols) {
+                        return { valid: false, error: `Cell out of bounds in mergedRegions[${i}]` };
+                    }
+                }
+                if (!region.bounds || typeof region.bounds !== 'object') {
+                    return { valid: false, error: `mergedRegions[${i}].bounds is invalid` };
+                }
+                const { minRow, maxRow, minCol, maxCol } = region.bounds;
+                if (typeof minRow !== 'number' || typeof maxRow !== 'number' ||
+                    typeof minCol !== 'number' || typeof maxCol !== 'number') {
+                    return { valid: false, error: `mergedRegions[${i}].bounds values must be numbers` };
+                }
+            }
+        }
+        
+        // Validate maskMode if present
+        if (data.maskMode !== undefined && typeof data.maskMode !== 'boolean') {
+            return { valid: false, error: 'maskMode must be a boolean' };
+        }
+        
+        return { valid: true };
+    }
+    
+    /**
      * Import mapping from JSON string
      */
     importMapping(jsonString) {
         try {
             const data = JSON.parse(jsonString);
             
+            // Validate the imported data before applying
+            const validation = this._validateImportData(data);
+            if (!validation.valid) {
+                console.error('Import validation failed:', validation.error);
+                return false;
+            }
+            
             if (data.gridSize && data.controlPoints) {
-                this.gridSize = data.gridSize;
-                this.controlPoints = data.controlPoints;
+                this.gridSize = { rows: data.gridSize.rows, cols: data.gridSize.cols };
+                this.controlPoints = JSON.parse(JSON.stringify(data.controlPoints));
                 
                 // Import blocked cells, or initialize if not present
                 if (data.blockedCells) {
-                    this.blockedCells = data.blockedCells;
+                    this.blockedCells = JSON.parse(JSON.stringify(data.blockedCells));
                 } else {
                     this.initBlockedCells();
                 }
                 
                 // Import merged regions, or initialize if not present
                 if (data.mergedRegions) {
-                    this.mergedRegions = data.mergedRegions;
+                    this.mergedRegions = JSON.parse(JSON.stringify(data.mergedRegions));
                 } else {
                     this.initMergedRegions();
                 }
                 
                 // Import mask mode, default to false
-                this.maskMode = data.maskMode || false;
+                this.maskMode = data.maskMode === true;
                 
                 // Mark mesh as dirty since mapping was imported
                 this.isMeshDirty = true;
