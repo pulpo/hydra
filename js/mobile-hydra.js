@@ -1992,9 +1992,15 @@ class MobileHydra {
                 break;
                 
             case 'load_url':
-                const slotIndex = message.slot !== undefined ? message.slot : 0;
+                const slotIndex = Number.isInteger(message.slot) ? message.slot : 0;
+                if (slotIndex < 0 || slotIndex >= this.videoSlots.length) {
+                    console.warn('Invalid slot index:', slotIndex);
+                    return;
+                }
                 console.log('📥 Remote load_url: loading to slot', slotIndex, '(message.slot=', message.slot, ')');
-                this.loadVideoToSlot(slotIndex, message.url, 'Remote Video', message.url.toLowerCase().includes('.gif'));
+                if (typeof message.url === 'string') {
+                    this.loadVideoToSlot(slotIndex, message.url, 'Remote Video', message.url.toLowerCase().includes('.gif') || message.url.toLowerCase().includes('giphy'));
+                }
                 break;
         }
     }

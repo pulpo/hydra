@@ -693,7 +693,7 @@ class HydraController {
      uploadVideoFile(file) {
          if (!file) return;
          
-         const slot = this.state.video.currentSlot !== null ? this.state.video.currentSlot : 0;
+         const slot = this.state.video.currentSlot ?? 0;
          this.showStatus(`Uploading ${file.name} to slot ${slot + 1}...`, 'info');
          
          console.log('Uploading file:', file.name, 'to slot:', slot);
@@ -709,7 +709,7 @@ class HydraController {
      }
     
      loadVideoURL(url) {
-         const slot = this.state.video.currentSlot !== null ? this.state.video.currentSlot : 0;
+         const slot = this.state.video.currentSlot ?? 0;
          this.showStatus(`Loading video to slot ${slot + 1}...`, 'info');
          document.getElementById('video-url').value = '';
          
