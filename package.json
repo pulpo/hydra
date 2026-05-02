@@ -1,6 +1,6 @@
 {
   "name": "hydra-network-streaming",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Network streaming server for Hydra VJ mixer",
   "main": "server.js",
   "scripts": {
