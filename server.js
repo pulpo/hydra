@@ -332,4 +332,4 @@ server.listen(PORT, '0.0.0.0', () => {
 
 console.log('Hydra Network Streaming Server');
 console.log('==============================');
-// rebuild trigger: update GITOPS_TOKEN
+// rebuild trigger: updated GITOPS_TOKEN permissions
