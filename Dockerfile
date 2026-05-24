@@ -41,5 +41,6 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     req.on('error', () => process.exit(1)); \
     req.end();"
 
+
 # Start the application
 CMD ["node", "server.js"]
